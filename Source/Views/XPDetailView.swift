@@ -5,8 +5,6 @@ struct XPDetailView: View {
     @EnvironmentObject var xpManager: XPManager
 
     @State private var keyword: String
-    @State private var expansion: String
-    @State private var isRichText: Bool
     @State private var richTextAttributedString: NSAttributedString
     @State private var tags: [String]
     @State private var folder: String
@@ -17,16 +15,15 @@ struct XPDetailView: View {
     init(xp: XP) {
         self.xp = xp
         _keyword = State(initialValue: xp.keyword)
-        _expansion = State(initialValue: xp.expansion)
-        _isRichText = State(initialValue: xp.isRichText)
         _tags = State(initialValue: xp.tags)
         _folder = State(initialValue: xp.folder ?? "")
 
-        // Load rich text data if available
+        // Load rich text data if available, otherwise convert plain text
         if xp.isRichText, let attributedStr = xp.attributedString {
             _richTextAttributedString = State(initialValue: attributedStr)
         } else {
-            _richTextAttributedString = State(initialValue: NSAttributedString(string: xp.expansion))
+            // Convert plain text to attributed string with proper formatting
+            _richTextAttributedString = State(initialValue: XP.makeAttributedString(from: xp.expansion))
         }
     }
 
@@ -70,48 +67,14 @@ struct XPDetailView: View {
 
                 // Expansion Section
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Expansion")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .textCase(.uppercase)
+                    Text("Expansion")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
 
-                        Spacer()
-
-                        Toggle("Rich Text", isOn: $isRichText)
-                            .toggleStyle(.switch)
-                            .controlSize(.small)
-                            .onChange(of: isRichText) { newValue in
-                                if newValue {
-                                    // Convert plain text to attributed string
-                                    richTextAttributedString = NSAttributedString(string: expansion)
-                                } else {
-                                    // Convert attributed string to plain text
-                                    expansion = richTextAttributedString.string
-                                }
-                                debouncedSave()
-                            }
-                    }
-
-                    if isRichText {
-                        VStack(spacing: 0) {
-                            RichTextToolbar(textView: nil)
-                            RichTextEditor(attributedString: $richTextAttributedString)
-                                .frame(minHeight: 200)
-                                .border(Color.secondary.opacity(0.2))
-                                .onChange(of: richTextAttributedString) { _ in debouncedSave() }
-                        }
-                    } else {
-                        TextEditor(text: $expansion)
-                            .frame(minHeight: 200)
-                            .font(.body)
-                            .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(Color(NSColor.textBackgroundColor))
-                            .cornerRadius(8)
-                            .border(Color.secondary.opacity(0.2), width: 1)
-                            .onChange(of: expansion) { _ in debouncedSave() }
-                    }
+                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString)
+                        .frame(minHeight: 200)
+                        .onChange(of: richTextAttributedString) { _ in debouncedSave() }
                 }
 
                 Divider()
@@ -231,9 +194,7 @@ struct XPDetailView: View {
 
     private var isValid: Bool {
         let hasKeyword = !keyword.trimmingCharacters(in: .whitespaces).isEmpty
-        let hasContent = isRichText ?
-            !richTextAttributedString.string.trimmingCharacters(in: .whitespaces).isEmpty :
-            !expansion.trimmingCharacters(in: .whitespaces).isEmpty
+        let hasContent = !richTextAttributedString.string.trimmingCharacters(in: .whitespaces).isEmpty
         return hasKeyword && hasContent
     }
 
@@ -271,22 +232,14 @@ struct XPDetailView: View {
         let trimmedKeyword = keyword.trimmingCharacters(in: .whitespaces)
         let trimmedFolder = folder.trimmingCharacters(in: .whitespaces)
 
-        // Prepare expansion data based on format
-        let expansionText: String
-        let richTextData: Data?
-
-        if isRichText {
-            expansionText = richTextAttributedString.string
-            richTextData = XP.makeRichTextData(from: richTextAttributedString)
-        } else {
-            expansionText = expansion.trimmingCharacters(in: .whitespaces)
-            richTextData = nil
-        }
+        // Always save as rich text
+        let expansionText = richTextAttributedString.string
+        let richTextData = XP.makeRichTextData(from: richTextAttributedString)
 
         var updatedXP = xp
         updatedXP.keyword = trimmedKeyword
         updatedXP.expansion = expansionText
-        updatedXP.isRichText = isRichText
+        updatedXP.isRichText = true
         updatedXP.richTextData = richTextData
         updatedXP.tags = tags
         updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder

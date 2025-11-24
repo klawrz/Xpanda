@@ -37,12 +37,44 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
     // Helper to get attributed string from rich text data
     var attributedString: NSAttributedString? {
         guard isRichText, let data = richTextData else { return nil }
-        return try? NSAttributedString(data: data, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
+
+        do {
+            let attributedString = try NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+            )
+            return attributedString
+        } catch {
+            print("Error loading rich text data: \(error)")
+            // Fallback to plain text if RTF fails to load
+            return NSAttributedString(string: expansion)
+        }
     }
 
     // Helper to create rich text data from attributed string
     static func makeRichTextData(from attributedString: NSAttributedString) -> Data? {
-        try? attributedString.data(from: NSRange(location: 0, length: attributedString.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        guard attributedString.length > 0 else {
+            // Return nil for empty strings
+            return nil
+        }
+
+        do {
+            let data = try attributedString.data(
+                from: NSRange(location: 0, length: attributedString.length),
+                documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+            )
+            print("Created RTF data: \(data.count) bytes")
+            return data
+        } catch {
+            print("Error creating rich text data: \(error)")
+            return nil
+        }
+    }
+
+    // Helper to create attributed string from plain text
+    static func makeAttributedString(from plainText: String) -> NSAttributedString {
+        return NSAttributedString(string: plainText)
     }
 
     static func == (lhs: XP, rhs: XP) -> Bool {
