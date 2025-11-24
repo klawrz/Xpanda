@@ -71,7 +71,7 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with close button
+            // Close button row
             HStack {
                 Spacer()
                 Button(action: { dismiss() }) {
@@ -82,9 +82,9 @@ struct AboutView: View {
                 .buttonStyle(.plain)
                 .help("Close")
             }
-            .padding(.top, 16)
-            .padding(.trailing, 16)
+            .padding(12)
 
+            // Main content
             VStack(spacing: 20) {
                 // Panda branding
                 Image("PandaLogo")
@@ -100,7 +100,7 @@ struct AboutView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Text("Your friendly text expander")
+                Text("Your friendly text replacement system")
                     .font(.body)
                     .foregroundColor(.secondary)
 
@@ -117,14 +117,18 @@ struct AboutView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    Text("© 2024 Xpanda")
+                    Text("Built by Klawrz")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Text("© 2025 Xpanda")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
-                .padding(.bottom)
+                .padding(.bottom, 20)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 20)
         }
-        .frame(width: 400, height: 350)
+        .frame(width: 400, height: 400)
     }
 }
