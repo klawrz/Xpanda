@@ -267,8 +267,7 @@ struct XPDetailView: View {
     }
 
     private func saveChanges() {
-        guard isValid, !hasConflict else { return }
-
+        // Always save, even if empty - let the user work
         let trimmedKeyword = keyword.trimmingCharacters(in: .whitespaces)
         let trimmedFolder = folder.trimmingCharacters(in: .whitespaces)
 

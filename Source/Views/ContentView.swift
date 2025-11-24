@@ -3,10 +3,10 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var xpManager: XPManager
     @State private var selectedXP: XP?
-    @State private var showingAddSheet = false
     @State private var showingConflicts = false
     @State private var showingImportExport = false
     @State private var showingAbout = false
+    @State private var scrollToNewXP: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,18 +26,34 @@ struct ContentView: View {
                 Divider()
 
                 // XP List
-                List(selection: $selectedXP) {
-                    ForEach(xpManager.filteredXPs) { xp in
-                        XPListRow(xp: xp, hasConflict: xpManager.conflictingKeywords[xp.keyword.lowercased()]?.count ?? 0 > 1)
-                            .tag(xp)
-                            .contextMenu {
-                                Button("Delete", role: .destructive) {
-                                    xpManager.delete(xp)
+                ScrollViewReader { proxy in
+                    List(selection: $selectedXP) {
+                        ForEach(xpManager.filteredXPs, id: \.id) { xp in
+                            XPListRow(xp: xp, hasConflict: xpManager.conflictingKeywords[xp.keyword.lowercased()]?.count ?? 0 > 1)
+                                .tag(xp)
+                                .contextMenu {
+                                    Button("Delete", role: .destructive) {
+                                        xpManager.delete(xp)
+                                    }
                                 }
+                        }
+                    }
+                    .listStyle(.sidebar)
+                    .id(xpManager.xps.map { "\($0.id)-\($0.keyword)-\($0.dateModified)" }.joined())
+                    .onChange(of: scrollToNewXP) { xpID in
+                        // Only scroll when a new XP is created
+                        if let id = xpID {
+                            // Small delay to let the view render first
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                withAnimation {
+                                    proxy.scrollTo(id, anchor: .top)
+                                }
+                                // Reset after scrolling
+                                scrollToNewXP = nil
                             }
+                        }
                     }
                 }
-                .listStyle(.sidebar)
             }
             .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
             .toolbar {
@@ -50,7 +66,7 @@ struct ContentView: View {
                             }
                         }
 
-                        Button(action: { showingAddSheet = true }) {
+                        Button(action: { addNewXP() }) {
                             Label("Add XP", systemImage: "plus")
                         }
                     }
@@ -81,10 +97,11 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            // Detail view
-            if let xp = selectedXP {
-                XPDetailView(xp: xp)
-                    .id(xp.id) // Force view refresh when XP changes
+            // Detail view - find the current version from the manager
+            if let selectedID = selectedXP?.id,
+               let currentXP = xpManager.xps.first(where: { $0.id == selectedID }) {
+                XPDetailView(xp: currentXP)
+                    .id(currentXP.id)
             } else {
                 VStack(spacing: 20) {
                     Image("PandaLogo")
@@ -107,10 +124,6 @@ struct ContentView: View {
             Divider()
 
             ExperienceBar(progress: xpManager.progress)
-        }
-        .sheet(isPresented: $showingAddSheet) {
-            AddEditXPView(mode: .add)
-                .environmentObject(xpManager)
         }
         .sheet(isPresented: $showingConflicts) {
             ConflictView()
@@ -140,6 +153,26 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private func addNewXP() {
+        // Create a blank XP
+        let newXP = XP(
+            keyword: "",
+            expansion: "",
+            isRichText: false,
+            tags: [],
+            folder: nil
+        )
+
+        // Add it to the manager
+        xpManager.add(newXP)
+
+        // Select it so the user can immediately edit it
+        selectedXP = newXP
+
+        // Trigger scroll to the new XP
+        scrollToNewXP = newXP.id
     }
 }
 
@@ -174,8 +207,9 @@ struct XPListRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(xp.keyword)
+                    Text(xp.keyword.isEmpty ? "(Untitled)" : xp.keyword)
                         .font(.headline)
+                        .foregroundColor(xp.keyword.isEmpty ? .secondary : .primary)
                     if hasConflict {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
@@ -276,6 +310,7 @@ struct FilterSidebar: View {
                         .buttonStyle(.plain)
                     }
                 }
+                .padding(.bottom, 12)
             }
         }
     }

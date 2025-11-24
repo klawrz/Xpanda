@@ -81,7 +81,7 @@ class XPManager: ObservableObject {
     // MARK: - CRUD Operations
 
     func add(_ xp: XP) {
-        xps.append(xp)
+        xps.insert(xp, at: 0) // Add to the top of the list
         save()
     }
 

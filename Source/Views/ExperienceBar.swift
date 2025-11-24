@@ -12,7 +12,7 @@ struct ExperienceBar: View {
 
                 Spacer()
 
-                Text("\(progress.currentExperience) / \(progress.experienceNeeded) XP")
+                Text("\(progress.currentExperience) / \(progress.experienceNeeded) exp")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
@@ -46,7 +46,7 @@ struct ExperienceBar: View {
 
                 Spacer()
 
-                Text("+\(progress.experiencePerExpansion) XP per use")
+                Text("+\(progress.experiencePerExpansion) exp per use")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
