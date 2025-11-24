@@ -20,6 +20,7 @@ struct AddEditXPView: View {
     @State private var keyword: String = ""
     @State private var expansion: String = ""
     @State private var isRichText: Bool = false
+    @State private var richTextAttributedString: NSAttributedString = NSAttributedString()
     @State private var tags: [String] = []
     @State private var newTag: String = ""
     @State private var folder: String = ""
@@ -40,6 +41,13 @@ struct AddEditXPView: View {
             _isRichText = State(initialValue: xp.isRichText)
             _tags = State(initialValue: xp.tags)
             _folder = State(initialValue: xp.folder ?? "")
+
+            // Load rich text data if available
+            if xp.isRichText, let attributedStr = xp.attributedString {
+                _richTextAttributedString = State(initialValue: attributedStr)
+            } else {
+                _richTextAttributedString = State(initialValue: NSAttributedString(string: xp.expansion))
+            }
         }
     }
 
@@ -76,14 +84,30 @@ struct AddEditXPView: View {
                 }
 
                 Section("Expansion") {
-                    TextEditor(text: $expansion)
-                        .frame(minHeight: 100)
-                        .font(.body)
-                        .border(Color.secondary.opacity(0.2))
+                    if isRichText {
+                        VStack(spacing: 0) {
+                            RichTextToolbar(textView: nil)
+                            RichTextEditor(attributedString: $richTextAttributedString)
+                                .frame(minHeight: 150)
+                                .border(Color.secondary.opacity(0.2))
+                        }
+                    } else {
+                        TextEditor(text: $expansion)
+                            .frame(minHeight: 100)
+                            .font(.body)
+                            .border(Color.secondary.opacity(0.2))
+                    }
 
                     Toggle("Use Rich Text", isOn: $isRichText)
-                        .disabled(true) // Will be enabled in future version
-                        .help("Rich text support coming soon")
+                        .onChange(of: isRichText) { newValue in
+                            if newValue {
+                                // Convert plain text to attributed string
+                                richTextAttributedString = NSAttributedString(string: expansion)
+                            } else {
+                                // Convert attributed string to plain text
+                                expansion = richTextAttributedString.string
+                            }
+                        }
                 }
 
                 Section("Organization") {
@@ -188,8 +212,11 @@ struct AddEditXPView: View {
     }
 
     private var isValid: Bool {
-        !keyword.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !expansion.trimmingCharacters(in: .whitespaces).isEmpty
+        let hasKeyword = !keyword.trimmingCharacters(in: .whitespaces).isEmpty
+        let hasContent = isRichText ?
+            !richTextAttributedString.string.trimmingCharacters(in: .whitespaces).isEmpty :
+            !expansion.trimmingCharacters(in: .whitespaces).isEmpty
+        return hasKeyword && hasContent
     }
 
     private var hasKeywordConflict: Bool {
@@ -227,15 +254,27 @@ struct AddEditXPView: View {
         }
 
         let trimmedKeyword = keyword.trimmingCharacters(in: .whitespaces)
-        let trimmedExpansion = expansion.trimmingCharacters(in: .whitespaces)
         let trimmedFolder = folder.trimmingCharacters(in: .whitespaces)
+
+        // Prepare expansion data based on format
+        let expansionText: String
+        let richTextData: Data?
+
+        if isRichText {
+            expansionText = richTextAttributedString.string
+            richTextData = XP.makeRichTextData(from: richTextAttributedString)
+        } else {
+            expansionText = expansion.trimmingCharacters(in: .whitespaces)
+            richTextData = nil
+        }
 
         switch mode {
         case .add:
             let newXP = XP(
                 keyword: trimmedKeyword,
-                expansion: trimmedExpansion,
+                expansion: expansionText,
                 isRichText: isRichText,
+                richTextData: richTextData,
                 tags: tags,
                 folder: trimmedFolder.isEmpty ? nil : trimmedFolder
             )
@@ -244,8 +283,9 @@ struct AddEditXPView: View {
         case .edit(let originalXP):
             var updatedXP = originalXP
             updatedXP.keyword = trimmedKeyword
-            updatedXP.expansion = trimmedExpansion
+            updatedXP.expansion = expansionText
             updatedXP.isRichText = isRichText
+            updatedXP.richTextData = richTextData
             updatedXP.tags = tags
             updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder
             xpManager.update(updatedXP)

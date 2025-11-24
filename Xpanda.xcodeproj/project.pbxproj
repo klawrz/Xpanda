@@ -19,6 +19,9 @@
 		BF14B0CA2ED2827300C4BF8D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B92ED2827300C4BF8D /* SettingsView.swift */; };
 		BF14B0CB2ED2827300C4BF8D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BF14B0BC2ED2827300C4BF8D /* Assets.xcassets */; };
 		BF14B0CC2ED2827300C4BF8D /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = BF14B0BD2ED2827300C4BF8D /* Info.plist */; };
+		BF14B0CE2ED28B8400C4BF8D /* XPProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0CD2ED28B8400C4BF8D /* XPProgress.swift */; };
+		BF14B0D02ED28B9800C4BF8D /* ExperienceBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */; };
+		BF14B0D22ED384A300C4BF8D /* RichTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +39,9 @@
 		BF14B0BD2ED2827300C4BF8D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BF14B0BE2ED2827300C4BF8D /* Xpanda.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Xpanda.entitlements; sourceTree = "<group>"; };
 		BF14B0BF2ED2827300C4BF8D /* XpandaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XpandaApp.swift; sourceTree = "<group>"; };
+		BF14B0CD2ED28B8400C4BF8D /* XPProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPProgress.swift; sourceTree = "<group>"; };
+		BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperienceBar.swift; sourceTree = "<group>"; };
+		BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichTextEditor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -77,6 +83,7 @@
 		BF14B0B42ED2827300C4BF8D /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				BF14B0CD2ED28B8400C4BF8D /* XPProgress.swift */,
 				BF14B0B32ED2827300C4BF8D /* XP.swift */,
 			);
 			path = Models;
@@ -85,6 +92,8 @@
 		BF14B0BB2ED2827300C4BF8D /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */,
+				BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */,
 				BF14B0B52ED2827300C4BF8D /* AddEditXPView.swift */,
 				BF14B0B62ED2827300C4BF8D /* ConflictView.swift */,
 				BF14B0B72ED2827300C4BF8D /* ContentView.swift */,
@@ -188,10 +197,13 @@
 				BF14B0C42ED2827300C4BF8D /* AddEditXPView.swift in Sources */,
 				BF14B0C52ED2827300C4BF8D /* XP.swift in Sources */,
 				BF14B0C62ED2827300C4BF8D /* XPDetailView.swift in Sources */,
+				BF14B0D22ED384A300C4BF8D /* RichTextEditor.swift in Sources */,
 				BF14B0C72ED2827300C4BF8D /* ImportView.swift in Sources */,
+				BF14B0CE2ED28B8400C4BF8D /* XPProgress.swift in Sources */,
 				BF14B0C82ED2827300C4BF8D /* XPManager.swift in Sources */,
 				BF14B0C92ED2827300C4BF8D /* ConflictView.swift in Sources */,
 				BF14B0CA2ED2827300C4BF8D /* SettingsView.swift in Sources */,
+				BF14B0D02ED28B9800C4BF8D /* ExperienceBar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

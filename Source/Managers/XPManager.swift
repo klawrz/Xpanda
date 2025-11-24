@@ -8,9 +8,12 @@ class XPManager: ObservableObject {
     @Published var searchText: String = ""
     @Published var selectedTags: Set<String> = []
     @Published var selectedFolder: String? = nil
+    @Published var progress: XPProgress = XPProgress()
 
     private let storageURL: URL
+    private let progressStorageURL: URL
     private let fileName = "xpanda_data.json"
+    private let progressFileName = "xpanda_progress.json"
 
     var filteredXPs: [XP] {
         xps.filter { xp in
@@ -68,9 +71,11 @@ class XPManager: ObservableObject {
         }
 
         storageURL = appDirectory.appendingPathComponent(fileName)
+        progressStorageURL = appDirectory.appendingPathComponent(progressFileName)
 
         // Load existing data
         load()
+        loadProgress()
     }
 
     // MARK: - CRUD Operations
@@ -161,5 +166,36 @@ class XPManager: ObservableObject {
 
     func findXP(forKeyword keyword: String) -> XP? {
         xps.first { $0.keyword.lowercased() == keyword.lowercased() }
+    }
+
+    // MARK: - Progress Management
+
+    func addExperienceForExpansion() -> Bool {
+        let leveledUp = progress.addExperience()
+        saveProgress()
+        return leveledUp
+    }
+
+    func saveProgress() {
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            let data = try encoder.encode(progress)
+            try data.write(to: progressStorageURL)
+        } catch {
+            print("Error saving progress: \(error)")
+        }
+    }
+
+    func loadProgress() {
+        do {
+            let data = try Data(contentsOf: progressStorageURL)
+            let decoder = JSONDecoder()
+            progress = try decoder.decode(XPProgress.self, from: data)
+        } catch {
+            // Start with new progress if no saved data exists
+            progress = XPProgress()
+            saveProgress()
+        }
     }
 }

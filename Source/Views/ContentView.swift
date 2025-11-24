@@ -4,13 +4,13 @@ struct ContentView: View {
     @EnvironmentObject var xpManager: XPManager
     @State private var selectedXP: XP?
     @State private var showingAddSheet = false
-    @State private var showingEditSheet = false
     @State private var showingConflicts = false
     @State private var showingImportExport = false
     @State private var showingAbout = false
 
     var body: some View {
-        NavigationSplitView {
+        VStack(spacing: 0) {
+            NavigationSplitView {
             // Sidebar
             VStack(spacing: 0) {
                 // Search bar
@@ -31,10 +31,6 @@ struct ContentView: View {
                         XPListRow(xp: xp, hasConflict: xpManager.conflictingKeywords[xp.keyword.lowercased()]?.count ?? 0 > 1)
                             .tag(xp)
                             .contextMenu {
-                                Button("Edit") {
-                                    selectedXP = xp
-                                    showingEditSheet = true
-                                }
                                 Button("Delete", role: .destructive) {
                                     xpManager.delete(xp)
                                 }
@@ -87,9 +83,8 @@ struct ContentView: View {
         } detail: {
             // Detail view
             if let xp = selectedXP {
-                XPDetailView(xp: xp, onEdit: {
-                    showingEditSheet = true
-                })
+                XPDetailView(xp: xp)
+                    .id(xp.id) // Force view refresh when XP changes
             } else {
                 VStack(spacing: 20) {
                     Image("PandaLogo")
@@ -108,15 +103,14 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+
+            Divider()
+
+            ExperienceBar(progress: xpManager.progress)
+        }
         .sheet(isPresented: $showingAddSheet) {
             AddEditXPView(mode: .add)
                 .environmentObject(xpManager)
-        }
-        .sheet(isPresented: $showingEditSheet) {
-            if let xp = selectedXP {
-                AddEditXPView(mode: .edit(xp))
-                    .environmentObject(xpManager)
-            }
         }
         .sheet(isPresented: $showingConflicts) {
             ConflictView()

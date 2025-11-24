@@ -205,8 +205,14 @@ You can access this location via:
 
 ## License
 
-Copyright © 2024 Xpanda. All rights reserved.
+MIT License - See LICENSE file for details
+
+Copyright © 2024 Xpanda Contributors
+
+## Disclaimer
+
+Xpanda is an independent text expansion utility created for productivity purposes. It is not affiliated with, endorsed by, or related to TextExpander or any other commercial text expansion software. The concept of text expansion is a common productivity technique implemented by many applications.
 
 ---
 
-Made with ❤️ for productivity
+Made with ❤️ for productivity 🐼
