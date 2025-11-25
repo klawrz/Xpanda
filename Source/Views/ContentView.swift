@@ -29,8 +29,12 @@ struct ContentView: View {
                 ScrollViewReader { proxy in
                     List(selection: $selectedXP) {
                         ForEach(xpManager.filteredXPs, id: \.id) { xp in
-                            XPListRow(xp: xp, hasConflict: xpManager.conflictingKeywords[xp.keyword.lowercased()]?.count ?? 0 > 1)
-                                .tag(xp)
+                            XPListRow(
+                                xp: xp,
+                                hasConflict: xpManager.conflictingKeywords[xp.keyword.lowercased()] != nil,
+                                conflictingKeywords: xpManager.getConflictingKeywords(for: xp.keyword)
+                            )
+                            .tag(xp)
                                 .contextMenu {
                                     Button("Delete", role: .destructive) {
                                         xpManager.delete(xp)
@@ -202,6 +206,7 @@ struct SearchBar: View {
 struct XPListRow: View {
     let xp: XP
     let hasConflict: Bool
+    let conflictingKeywords: [String]
 
     var body: some View {
         HStack {
@@ -214,6 +219,7 @@ struct XPListRow: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
                             .font(.caption)
+                            .help(conflictMessage)
                     }
                 }
 
@@ -243,6 +249,16 @@ struct XPListRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+    }
+
+    private var conflictMessage: String {
+        if conflictingKeywords.isEmpty {
+            return "This keyword conflicts with another XP"
+        } else if conflictingKeywords.count == 1 {
+            return "Conflicts with: \(conflictingKeywords[0])"
+        } else {
+            return "Conflicts with: \(conflictingKeywords.joined(separator: ", "))"
+        }
     }
 }
 

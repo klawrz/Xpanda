@@ -6,6 +6,7 @@ struct XPDetailView: View {
 
     @State private var keyword: String
     @State private var richTextAttributedString: NSAttributedString
+    @State private var outputPlainText: Bool
     @State private var tags: [String]
     @State private var folder: String
     @State private var newTag: String = ""
@@ -15,6 +16,7 @@ struct XPDetailView: View {
     init(xp: XP) {
         self.xp = xp
         _keyword = State(initialValue: xp.keyword)
+        _outputPlainText = State(initialValue: xp.outputPlainText)
         _tags = State(initialValue: xp.tags)
         _folder = State(initialValue: xp.folder ?? "")
 
@@ -29,10 +31,22 @@ struct XPDetailView: View {
 
     var hasConflict: Bool {
         guard !keyword.isEmpty else { return false }
-        if let existingXP = xpManager.findXP(forKeyword: keyword) {
-            return existingXP.id != xp.id
+        return xpManager.conflictingKeywords[keyword.lowercased()] != nil
+    }
+
+    var conflictingKeywords: [String] {
+        guard !keyword.isEmpty else { return [] }
+        return xpManager.getConflictingKeywords(for: keyword)
+    }
+
+    var conflictMessage: String {
+        if conflictingKeywords.isEmpty {
+            return "This keyword conflicts with another XP"
+        } else if conflictingKeywords.count == 1 {
+            return "Conflicts with: \(conflictingKeywords[0])"
+        } else {
+            return "Conflicts with: \(conflictingKeywords.joined(separator: ", "))"
         }
-        return false
     }
 
     var body: some View {
@@ -55,7 +69,7 @@ struct XPDetailView: View {
                         if hasConflict {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.orange)
-                                .help("This keyword conflicts with another XP")
+                                .help(conflictMessage)
                         }
                     }
                     .padding(12)
@@ -67,10 +81,20 @@ struct XPDetailView: View {
 
                 // Expansion Section
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Expansion")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
+                    HStack {
+                        Text("Expansion")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        Spacer()
+
+                        Toggle("Output as Plain Text", isOn: $outputPlainText)
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .help("Strip formatting when expanding (for JSON, code, etc.)")
+                            .onChange(of: outputPlainText) { _ in debouncedSave() }
+                    }
 
                     RichTextEditorWithToolbar(attributedString: $richTextAttributedString)
                         .frame(minHeight: 200)
@@ -241,6 +265,7 @@ struct XPDetailView: View {
         updatedXP.expansion = expansionText
         updatedXP.isRichText = true
         updatedXP.richTextData = richTextData
+        updatedXP.outputPlainText = outputPlainText
         updatedXP.tags = tags
         updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder
 

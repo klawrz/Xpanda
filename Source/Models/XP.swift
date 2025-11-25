@@ -7,10 +7,30 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
     var expansion: String
     var isRichText: Bool
     var richTextData: Data? // Stores RTF data when isRichText is true
+    var outputPlainText: Bool = false // If true, strip formatting when expanding (for JSON, code, etc.)
     var tags: [String]
     var folder: String?
     var dateCreated: Date
     var dateModified: Date
+
+    // Custom decoding to handle backward compatibility
+    enum CodingKeys: String, CodingKey {
+        case id, keyword, expansion, isRichText, richTextData, outputPlainText, tags, folder, dateCreated, dateModified
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        keyword = try container.decode(String.self, forKey: .keyword)
+        expansion = try container.decode(String.self, forKey: .expansion)
+        isRichText = try container.decode(Bool.self, forKey: .isRichText)
+        richTextData = try container.decodeIfPresent(Data.self, forKey: .richTextData)
+        outputPlainText = try container.decodeIfPresent(Bool.self, forKey: .outputPlainText) ?? false
+        tags = try container.decode([String].self, forKey: .tags)
+        folder = try container.decodeIfPresent(String.self, forKey: .folder)
+        dateCreated = try container.decode(Date.self, forKey: .dateCreated)
+        dateModified = try container.decode(Date.self, forKey: .dateModified)
+    }
 
     init(
         id: UUID = UUID(),
@@ -18,6 +38,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         expansion: String,
         isRichText: Bool = false,
         richTextData: Data? = nil,
+        outputPlainText: Bool = false,
         tags: [String] = [],
         folder: String? = nil,
         dateCreated: Date = Date(),
@@ -28,6 +49,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         self.expansion = expansion
         self.isRichText = isRichText
         self.richTextData = richTextData
+        self.outputPlainText = outputPlainText
         self.tags = tags
         self.folder = folder
         self.dateCreated = dateCreated

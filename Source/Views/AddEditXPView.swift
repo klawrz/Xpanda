@@ -19,6 +19,7 @@ struct AddEditXPView: View {
 
     @State private var keyword: String = ""
     @State private var richTextAttributedString: NSAttributedString = NSAttributedString()
+    @State private var outputPlainText: Bool = false
     @State private var tags: [String] = []
     @State private var newTag: String = ""
     @State private var folder: String = ""
@@ -35,6 +36,7 @@ struct AddEditXPView: View {
             break
         case .edit(let xp):
             _keyword = State(initialValue: xp.keyword)
+            _outputPlainText = State(initialValue: xp.outputPlainText)
             _tags = State(initialValue: xp.tags)
             _folder = State(initialValue: xp.folder ?? "")
 
@@ -194,15 +196,29 @@ struct AddEditXPView: View {
     private var hasKeywordConflict: Bool {
         guard !keyword.isEmpty else { return false }
 
-        switch mode {
-        case .add:
-            return xpManager.findXP(forKeyword: keyword) != nil
-        case .edit(let originalXP):
-            if let existingXP = xpManager.findXP(forKeyword: keyword) {
-                return existingXP.id != originalXP.id
+        let lowercaseKeyword = keyword.lowercased()
+
+        // Check if this keyword would create any conflicts
+        for xp in xpManager.xps {
+            let otherKeyword = xp.keyword.lowercased()
+
+            // Skip comparing with itself in edit mode
+            if case .edit(let originalXP) = mode, xp.id == originalXP.id {
+                continue
             }
-            return false
+
+            // Check for exact match
+            if otherKeyword == lowercaseKeyword {
+                return true
+            }
+
+            // Check if one is a prefix of the other
+            if lowercaseKeyword.hasPrefix(otherKeyword) || otherKeyword.hasPrefix(lowercaseKeyword) {
+                return true
+            }
         }
+
+        return false
     }
 
     private func addTag() {
@@ -239,6 +255,7 @@ struct AddEditXPView: View {
                 expansion: expansionText,
                 isRichText: true,
                 richTextData: richTextData,
+                outputPlainText: outputPlainText,
                 tags: tags,
                 folder: trimmedFolder.isEmpty ? nil : trimmedFolder
             )
@@ -250,6 +267,7 @@ struct AddEditXPView: View {
             updatedXP.expansion = expansionText
             updatedXP.isRichText = true
             updatedXP.richTextData = richTextData
+            updatedXP.outputPlainText = outputPlainText
             updatedXP.tags = tags
             updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder
             xpManager.update(updatedXP)

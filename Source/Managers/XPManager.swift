@@ -44,11 +44,34 @@ class XPManager: ObservableObject {
 
     var conflictingKeywords: [String: [XP]] {
         var conflicts: [String: [XP]] = [:]
-        let groupedByKeyword = Dictionary(grouping: xps) { $0.keyword.lowercased() }
 
+        // Filter out XPs with empty keywords
+        let validXPs = xps.filter { !$0.keyword.isEmpty }
+        let groupedByKeyword = Dictionary(grouping: validXPs) { $0.keyword.lowercased() }
+
+        // Check for exact duplicates
         for (keyword, xpList) in groupedByKeyword {
             if xpList.count > 1 {
                 conflicts[keyword] = xpList
+            }
+        }
+
+        // Check for prefix conflicts (e.g., "xrich" conflicts with "xrichtext")
+        let sortedKeywords = validXPs.map { $0.keyword.lowercased() }.sorted()
+        for i in 0..<sortedKeywords.count {
+            for j in (i+1)..<sortedKeywords.count {
+                let shorter = sortedKeywords[i]
+                let longer = sortedKeywords[j]
+
+                // Skip empty keywords
+                guard !shorter.isEmpty, !longer.isEmpty else { continue }
+
+                // If shorter is a prefix of longer, they conflict
+                if longer.hasPrefix(shorter) {
+                    // Mark both keywords as conflicting
+                    conflicts[shorter] = validXPs.filter { $0.keyword.lowercased() == shorter }
+                    conflicts[longer] = validXPs.filter { $0.keyword.lowercased() == longer }
+                }
             }
         }
 
@@ -57,6 +80,35 @@ class XPManager: ObservableObject {
 
     var hasConflicts: Bool {
         !conflictingKeywords.isEmpty
+    }
+
+    // Get list of keywords that conflict with the given keyword
+    func getConflictingKeywords(for keyword: String) -> [String] {
+        let lowercaseKeyword = keyword.lowercased()
+
+        // Skip empty keywords
+        guard !lowercaseKeyword.isEmpty else { return [] }
+
+        var conflicts: [String] = []
+
+        for xp in xps {
+            let otherKeyword = xp.keyword.lowercased()
+
+            // Skip empty keywords
+            guard !otherKeyword.isEmpty else { continue }
+
+            // Skip if it's the same keyword
+            if otherKeyword == lowercaseKeyword {
+                continue
+            }
+
+            // Check if one is a prefix of the other
+            if lowercaseKeyword.hasPrefix(otherKeyword) || otherKeyword.hasPrefix(lowercaseKeyword) {
+                conflicts.append(xp.keyword)
+            }
+        }
+
+        return conflicts
     }
 
     init() {

@@ -118,6 +118,10 @@ class ExpansionEngine {
 
         for xp in manager.xps {
             let keyword = xp.keyword
+
+            // Skip empty keywords
+            guard !keyword.isEmpty else { continue }
+
             if typedBuffer.hasSuffix(keyword) {
                 // Check if the character before the keyword is a word boundary (or start of buffer)
                 let keywordStartIndex = typedBuffer.index(typedBuffer.endIndex, offsetBy: -keyword.count)
@@ -215,8 +219,11 @@ class ExpansionEngine {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
-        if xp.isRichText, let attributedString = xp.attributedString {
-            // Put rich text on clipboard
+        if xp.outputPlainText {
+            // Always output as plain text (for JSON, code, etc.)
+            pasteboard.setString(xp.expansion, forType: .string)
+        } else if xp.isRichText, let attributedString = xp.attributedString {
+            // Put rich text on clipboard with formatting
             pasteboard.writeObjects([attributedString])
         } else {
             // Put plain text on clipboard
