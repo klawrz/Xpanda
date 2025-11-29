@@ -223,7 +223,7 @@ struct XPListRow: View {
                     }
                 }
 
-                Text(xp.expansion)
+                PreviewWithPills(text: xp.previewText)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -375,5 +375,71 @@ struct FlowLayout: Layout {
 
             height = currentY + lineHeight
         }
+    }
+}
+
+// Preview view that shows grey pills for placeholders in sidebar
+struct PreviewWithPills: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(Array(components.enumerated()), id: \.offset) { _, component in
+                if component.isPlaceholder {
+                    Text(component.displayText)
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.gray.opacity(0.2))
+                        .cornerRadius(3)
+                } else {
+                    Text(component.text)
+                }
+            }
+        }
+    }
+
+    private var components: [TextComponent] {
+        var result: [TextComponent] = []
+        var remainingText = text
+
+        while !remainingText.isEmpty {
+            // Check if text starts with a placeholder token
+            var foundToken = false
+            for token in PlaceholderToken.allCases {
+                if remainingText.hasPrefix(token.storageText) {
+                    result.append(TextComponent(text: token.storageText, displayText: token.rawValue, isPlaceholder: true))
+                    remainingText.removeFirst(token.storageText.count)
+                    foundToken = true
+                    break
+                }
+            }
+
+            if !foundToken {
+                // Find the next placeholder or take rest of string
+                var nextTokenIndex = remainingText.count
+                for token in PlaceholderToken.allCases {
+                    if let range = remainingText.range(of: token.storageText) {
+                        let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
+                        nextTokenIndex = min(nextTokenIndex, index)
+                    }
+                }
+
+                let plainText = String(remainingText.prefix(nextTokenIndex))
+                if !plainText.isEmpty {
+                    result.append(TextComponent(text: plainText, displayText: plainText, isPlaceholder: false))
+                }
+                remainingText.removeFirst(nextTokenIndex)
+            }
+        }
+
+        return result
+    }
+
+    private struct TextComponent {
+        let text: String
+        let displayText: String
+        let isPlaceholder: Bool
     }
 }

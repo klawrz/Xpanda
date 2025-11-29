@@ -70,19 +70,28 @@ class PlaceholderPillAttachmentCell: NSTextAttachmentCell {
     }
 
     override func cellSize() -> NSSize {
-        return NSSize(width: 80, height: 18)
+        // Calculate size based on text width with padding (matching sidebar pills)
+        let text = token.displayLabel
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemBlue
+        ]
+        let textSize = text.size(withAttributes: attrs)
+
+        // Add 8 points horizontal padding (4 on each side, matching sidebar)
+        return NSSize(width: textSize.width + 8, height: 18)
     }
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
-        // Draw rounded rectangle (oval pill)
-        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 9, yRadius: 9)
+        // Draw rounded rectangle pill
+        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 3, yRadius: 3)
 
-        // Fill with light blue background
-        NSColor.systemBlue.withAlphaComponent(0.15).setFill()
+        // Fill with light grey background (matching sidebar)
+        NSColor.systemGray.withAlphaComponent(0.2).setFill()
         path.fill()
 
-        // Draw blue border
-        NSColor.systemBlue.withAlphaComponent(0.5).setStroke()
+        // Draw grey border
+        NSColor.systemGray.withAlphaComponent(0.3).setStroke()
         path.lineWidth = 1.0
         path.stroke()
 
@@ -90,7 +99,7 @@ class PlaceholderPillAttachmentCell: NSTextAttachmentCell {
         let text = token.displayLabel
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor.systemBlue
+            .foregroundColor: NSColor.systemGray
         ]
         let textSize = text.size(withAttributes: attrs)
         let textRect = NSRect(
@@ -251,6 +260,23 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
             // Fallback to plain text if RTF fails to load
             return NSAttributedString(string: expansion)
         }
+    }
+
+    // Helper to get plain text preview with placeholders (for sidebar display)
+    var previewText: String {
+        if isRichText, let data = richTextData {
+            do {
+                let loadedString = try NSAttributedString(
+                    data: data,
+                    options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
+                    documentAttributes: nil
+                )
+                return loadedString.string
+            } catch {
+                return expansion
+            }
+        }
+        return expansion
     }
 
     // Helper to restore clipboard attachments from RTF
