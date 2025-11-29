@@ -633,8 +633,33 @@ struct RichTextToolbar: View {
     }
 
     private func positionCursor() {
-        // TODO: Implement cursor positioning
-        print("Position Cursor clicked")
+        guard let textView = textViewHolder.textView else { return }
+
+        let range = textView.selectedRange()
+        let token = PlaceholderToken.cursor
+
+        // Create pill attachment
+        let pillString = PlaceholderPillRenderer.createDisplayString(for: token)
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Ensure typing attributes are reset to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        textView.window?.makeFirstResponder(textView)
     }
 
     private func insertFillIn() {

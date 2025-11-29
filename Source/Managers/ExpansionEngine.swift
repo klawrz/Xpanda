@@ -229,20 +229,25 @@ class ExpansionEngine {
 
         pasteboard.clearContents()
 
+        var cursorOffset: Int? = nil
+
         if xp.outputPlainText {
             // Process placeholder replacement for plain text
             print("   → Using plain text output mode")
-            let processedText = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "")
+            let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "")
+            cursorOffset = offset
             pasteboard.setString(processedText, forType: .string)
         } else if xp.isRichText, let attributedString = xp.attributedString {
             // Process placeholder replacement for rich text
             print("   → Using rich text mode")
-            let processedAttributedString = replacePlaceholders(in: attributedString, clipboardContent: savedClipboardString ?? "")
+            let (processedAttributedString, offset) = replacePlaceholders(in: attributedString, clipboardContent: savedClipboardString ?? "")
+            cursorOffset = offset
             pasteboard.writeObjects([processedAttributedString])
         } else {
             // Process placeholder replacement for plain text
             print("   → Using fallback plain text mode")
-            let processedText = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "")
+            let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "")
+            cursorOffset = offset
             pasteboard.setString(processedText, forType: .string)
         }
 
@@ -265,6 +270,42 @@ class ExpansionEngine {
             keyUpEvent.flags = cmdKey
             keyUpEvent.post(tap: .cghidEventTap)
         }
+
+        // Reposition cursor if needed
+        if let offset = cursorOffset {
+            Thread.sleep(forTimeInterval: 0.1) // Wait for paste to complete
+
+            // Get the final text length from pasteboard to calculate cursor position
+            if let pastedString = pasteboard.string(forType: .string) {
+                let textLength = pastedString.count
+                let stepsBack = textLength - offset
+
+                print("🎯 Repositioning cursor:")
+                print("   Text length: \(textLength)")
+                print("   Cursor should be at: \(offset)")
+                print("   Steps back from end: \(stepsBack)")
+
+                // Move cursor left by the calculated steps
+                moveCursorLeft(steps: stepsBack)
+            }
+        }
+    }
+
+    private func moveCursorLeft(steps: Int) {
+        guard steps > 0 else { return }
+
+        let leftArrowKey = CGKeyCode(123) // Left arrow key code
+
+        for _ in 0..<steps {
+            if let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: leftArrowKey, keyDown: true),
+               let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: leftArrowKey, keyDown: false) {
+                keyDownEvent.post(tap: .cghidEventTap)
+                keyUpEvent.post(tap: .cghidEventTap)
+                Thread.sleep(forTimeInterval: 0.01) // Small delay between key presses
+            }
+        }
+
+        print("   ✓ Moved cursor \(steps) positions to the left")
     }
 
     private func checkAccessibilityPermissions() -> Bool {
@@ -274,49 +315,78 @@ class ExpansionEngine {
 
     // MARK: - Placeholder Replacement
 
-    private func replacePlaceholders(in text: String, clipboardContent: String) -> String {
+    private func replacePlaceholders(in text: String, clipboardContent: String) -> (text: String, cursorOffset: Int?) {
         var result = text
+        var cursorOffset: Int? = nil
 
-        print("🔍 Processing plain text for clipboard replacement")
+        print("🔍 Processing plain text for placeholder replacement")
         print("   Text: \(text)")
+
+        // Find cursor position before removing it
+        if let cursorRange = result.range(of: PlaceholderToken.cursor.storageText) {
+            cursorOffset = result.distance(from: result.startIndex, to: cursorRange.lowerBound)
+            print("   Found cursor at offset: \(cursorOffset!)")
+        }
+
+        // Remove {{cursor}} placeholder
+        result = result.replacingOccurrences(of: PlaceholderToken.cursor.storageText, with: "")
 
         // Replace {{clipboard}} with actual clipboard content
         result = result.replacingOccurrences(of: PlaceholderToken.clipboard.storageText, with: clipboardContent)
 
         print("   Result: \(result)")
+        print("   Cursor offset: \(cursorOffset?.description ?? "none")")
 
-        return result
+        return (result, cursorOffset)
     }
 
-    private func replacePlaceholders(in attributedString: NSAttributedString, clipboardContent: String) -> NSAttributedString {
+    private func replacePlaceholders(in attributedString: NSAttributedString, clipboardContent: String) -> (attributedString: NSAttributedString, cursorOffset: Int?) {
         let mutableString = NSMutableAttributedString(attributedString: attributedString)
         let fullRange = NSRange(location: 0, length: mutableString.length)
+        var cursorOffset: Int? = nil
 
-        print("🔍 Processing attributed string for clipboard replacement")
+        print("🔍 Processing attributed string for clipboard and cursor replacement")
         print("   String: \(mutableString.string)")
         print("   Length: \(mutableString.length)")
 
-        // First, find and replace clipboard attachments (they appear as U+FFFC character)
-        var indicesToReplace: [(range: NSRange, attributes: [NSAttributedString.Key: Any])] = []
+        // First, find and process placeholder attachments (they appear as U+FFFC character)
+        var indicesToReplace: [(range: NSRange, attributes: [NSAttributedString.Key: Any], replacementText: String)] = []
 
         mutableString.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
-            if let _ = value as? NSTextAttachment {
-                print("   ✓ Found attachment at range: \(range)")
-                // Found an attachment, save its location and attributes
+            if let attachment = value as? NSTextAttachment,
+               let fileWrapper = attachment.fileWrapper,
+               let data = fileWrapper.regularFileContents,
+               let storageText = String(data: data, encoding: .utf8) {
+
+                print("   ✓ Found attachment at range: \(range) with text: \(storageText)")
+
+                // Determine replacement based on placeholder type
+                var replacementText = ""
+                if storageText == PlaceholderToken.clipboard.storageText {
+                    replacementText = clipboardContent
+                    print("     → Clipboard placeholder, replacing with clipboard content")
+                } else if storageText == PlaceholderToken.cursor.storageText {
+                    replacementText = "" // Remove cursor placeholder
+                    if cursorOffset == nil {
+                        cursorOffset = range.location
+                        print("     → Cursor placeholder found at offset: \(range.location)")
+                    }
+                }
+
+                // Found a placeholder attachment
                 var attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
-                // Remove the attachment attribute so we can replace with plain text
                 attributes.removeValue(forKey: .attachment)
-                indicesToReplace.append((range: range, attributes: attributes))
+                indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
             }
         }
 
-        print("   Found \(indicesToReplace.count) attachments to replace")
+        print("   Found \(indicesToReplace.count) placeholder attachments")
 
         // Replace attachments in reverse order to maintain correct ranges
         for item in indicesToReplace.reversed() {
-            let replacement = NSAttributedString(string: clipboardContent, attributes: item.attributes)
+            let replacement = NSAttributedString(string: item.replacementText, attributes: item.attributes)
             mutableString.replaceCharacters(in: item.range, with: replacement)
-            print("   ✓ Replaced attachment with: \(clipboardContent)")
+            print("   ✓ Replaced attachment with: \"\(item.replacementText)\"")
         }
 
         // Find U+FFFC characters (object replacement character) which indicate where attachments were
@@ -378,6 +448,43 @@ class ExpansionEngine {
             searchRange.length = mutableString.length - searchRange.location
         }
 
-        return mutableString
+        // Find and remove {{cursor}} text placeholders
+        let cursorPattern = PlaceholderToken.cursor.storageText
+        var cursorSearchRange = NSRange(location: 0, length: mutableString.length)
+
+        while cursorSearchRange.location < mutableString.length {
+            let foundRange = (mutableString.string as NSString).range(of: cursorPattern, options: [], range: cursorSearchRange)
+
+            if foundRange.location == NSNotFound {
+                break
+            }
+
+            print("   ✓ Found \(cursorPattern) at range: \(foundRange)")
+
+            // Track cursor position if not already found
+            if cursorOffset == nil {
+                cursorOffset = foundRange.location
+                print("   ✓ Cursor position tracked at offset: \(foundRange.location)")
+            }
+
+            // Get the attributes at this location (to preserve formatting)
+            var attributes: [NSAttributedString.Key: Any] = [:]
+            if foundRange.location < mutableString.length {
+                attributes = mutableString.attributes(at: foundRange.location, effectiveRange: nil)
+            }
+
+            // Replace with empty string (remove the cursor placeholder)
+            let replacement = NSAttributedString(string: "", attributes: attributes)
+            mutableString.replaceCharacters(in: foundRange, with: replacement)
+
+            print("   ✓ Removed cursor placeholder")
+
+            // Update search range (since we removed text, location stays the same)
+            cursorSearchRange.location = foundRange.location
+            cursorSearchRange.length = mutableString.length - cursorSearchRange.location
+        }
+
+        print("   Final cursor offset: \(cursorOffset?.description ?? "none")")
+        return (mutableString, cursorOffset)
     }
 }
