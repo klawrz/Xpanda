@@ -191,6 +191,44 @@ struct RichTextEditor: NSViewRepresentable {
             parent.linkClickedAt = charIndex
             return false  // Don't open in browser
         }
+
+        // Fix typing attributes when selection changes (e.g., after moving cursor past an attachment)
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+
+            let range = textView.selectedRange()
+            guard let storage = textView.textStorage else { return }
+
+            // If cursor is at a position (not selecting text)
+            if range.length == 0 {
+                var shouldResetAttributes = false
+
+                // Check if we're right after an attachment
+                if range.location > 0 {
+                    let charIndex = range.location - 1
+                    if charIndex >= 0 && charIndex < storage.length {
+                        if storage.attribute(.attachment, at: charIndex, effectiveRange: nil) != nil {
+                            shouldResetAttributes = true
+                        }
+                    }
+                }
+
+                // Check if we're right before an attachment
+                if range.location < storage.length {
+                    if storage.attribute(.attachment, at: range.location, effectiveRange: nil) != nil {
+                        shouldResetAttributes = true
+                    }
+                }
+
+                // Reset typing attributes if we're adjacent to an attachment
+                if shouldResetAttributes {
+                    textView.typingAttributes = [
+                        .font: NSFont.systemFont(ofSize: 13),
+                        .foregroundColor: NSColor.labelColor
+                    ]
+                }
+            }
+        }
     }
 }
 
@@ -565,8 +603,33 @@ struct RichTextToolbar: View {
     }
 
     private func insertClipboard() {
-        // TODO: Implement clipboard insertion
-        print("Insert Clipboard clicked")
+        guard let textView = textViewHolder.textView else { return }
+
+        let range = textView.selectedRange()
+        let token = PlaceholderToken.clipboard
+
+        // Create pill attachment
+        let pillString = PlaceholderPillRenderer.createDisplayString(for: token)
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Ensure typing attributes are reset to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        textView.window?.makeFirstResponder(textView)
     }
 
     private func positionCursor() {
@@ -651,6 +714,86 @@ struct RichTextToolbar: View {
 
 }
 
+// Custom layout manager that draws pills over %clipboard% text
+class ClipboardPillLayoutManager: NSLayoutManager {
+    override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+
+        guard let textStorage = self.textStorage else { return }
+
+        // Find all %clipboard% occurrences in the visible range
+        let charRange = self.characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        let text = textStorage.string as NSString
+
+        var searchRange = charRange
+        while searchRange.location < NSMaxRange(charRange) {
+            let foundRange = text.range(of: "%clipboard%", options: [], range: searchRange)
+
+            if foundRange.location == NSNotFound {
+                break
+            }
+
+            // Draw pill over this text
+            if let container = self.textContainer(forGlyphAt: self.glyphIndexForCharacter(at: foundRange.location), effectiveRange: nil) {
+                let glyphRange = self.glyphRange(forCharacterRange: foundRange, actualCharacterRange: nil)
+                let boundingRect = self.boundingRect(forGlyphRange: glyphRange, in: container)
+
+                // Offset by origin
+                var pillRect = boundingRect
+                pillRect.origin.x += origin.x
+                pillRect.origin.y += origin.y
+
+                // Expand the rect to make a nice pill shape
+                pillRect = pillRect.insetBy(dx: -6, dy: -2)
+                pillRect.size.width = 80  // Fixed width for consistency
+                pillRect.size.height = 18
+
+                // Draw the pill
+                let path = NSBezierPath(roundedRect: pillRect, xRadius: 9, yRadius: 9)
+
+                // Fill with light blue background
+                NSColor.systemBlue.withAlphaComponent(0.15).setFill()
+                path.fill()
+
+                // Draw blue border
+                NSColor.systemBlue.withAlphaComponent(0.5).setStroke()
+                path.lineWidth = 1.0
+                path.stroke()
+
+                // Draw "clipboard" text (hide the %clipboard% underneath)
+                let displayText = "clipboard"
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 11),
+                    .foregroundColor: NSColor.systemBlue
+                ]
+                let textSize = displayText.size(withAttributes: attrs)
+                let textRect = NSRect(
+                    x: pillRect.origin.x + (pillRect.width - textSize.width) / 2,
+                    y: pillRect.origin.y + (pillRect.height - textSize.height) / 2 + 1,
+                    width: textSize.width,
+                    height: textSize.height
+                )
+
+                // First, draw a white/background rectangle to hide the %clipboard% text
+                NSColor.textBackgroundColor.setFill()
+                pillRect.fill()
+
+                // Redraw the pill
+                path.fill()
+                NSColor.systemBlue.withAlphaComponent(0.5).setStroke()
+                path.stroke()
+
+                // Draw the label
+                displayText.draw(in: textRect, withAttributes: attrs)
+            }
+
+            // Move to next search position
+            searchRange.location = foundRange.location + foundRange.length
+            searchRange.length = NSMaxRange(charRange) - searchRange.location
+        }
+    }
+}
+
 // Helper to access NSTextView from SwiftUI
 class RichTextViewHolder: ObservableObject {
     @Published var textView: NSTextView?
@@ -661,6 +804,74 @@ extension String {
     func substring(with nsrange: NSRange) -> String? {
         guard let range = Range(nsrange, in: self) else { return nil }
         return String(self[range])
+    }
+}
+
+// Custom text attachment cell for rendering the clipboard pill
+class ClipboardAttachmentCell: NSTextAttachmentCell {
+    override func cellSize() -> NSSize {
+        return NSSize(width: 80, height: 18)
+    }
+
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        // Draw rounded rectangle (oval pill)
+        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 9, yRadius: 9)
+
+        // Fill with light blue background
+        NSColor.systemBlue.withAlphaComponent(0.15).setFill()
+        path.fill()
+
+        // Draw blue border
+        NSColor.systemBlue.withAlphaComponent(0.5).setStroke()
+        path.lineWidth = 1.0
+        path.stroke()
+
+        // Draw "clipboard" text
+        let text = "clipboard"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.systemBlue
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        let textRect = NSRect(
+            x: cellFrame.origin.x + (cellFrame.width - textSize.width) / 2,
+            y: cellFrame.origin.y + (cellFrame.height - textSize.height) / 2 + 1,
+            width: textSize.width,
+            height: textSize.height
+        )
+        text.draw(in: textRect, withAttributes: attrs)
+    }
+
+    override func cellBaselineOffset() -> NSPoint {
+        return NSPoint(x: 0, y: -3)
+    }
+}
+
+// Custom text attachment for clipboard placeholder
+class ClipboardAttachment: NSTextAttachment {
+    // Use a special file wrapper to identify this as a clipboard attachment
+    static let clipboardMarker = "{{CLIPBOARD_PLACEHOLDER}}"
+
+    init() {
+        super.init(data: nil, ofType: nil)
+
+        // Create a file wrapper with our marker text so it survives RTF save/load
+        let markerData = ClipboardAttachment.clipboardMarker.data(using: .utf8)!
+        let wrapper = FileWrapper(regularFileWithContents: markerData)
+        wrapper.preferredFilename = "clipboard.txt"
+        self.fileWrapper = wrapper
+
+        // Set the custom cell for rendering
+        self.attachmentCell = ClipboardAttachmentCell()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        self.attachmentCell = ClipboardAttachmentCell()
+    }
+
+    override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: NSRect, glyphPosition position: CGPoint, characterIndex charIndex: Int) -> CGRect {
+        return CGRect(x: 0, y: -3, width: 80, height: 18)
     }
 }
 
