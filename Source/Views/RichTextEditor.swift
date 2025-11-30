@@ -333,9 +333,7 @@ struct RichTextToolbar: View {
 
             // Position Cursor
             Button(action: { positionCursor() }) {
-                Image(systemName: "cursorarrow.rays")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
+                CursorIconView()
                     .frame(width: 44, height: 32)
                     .contentShape(Rectangle())
             }
@@ -946,5 +944,41 @@ struct LinkInputDialog: View {
         }
         .padding(20)
         .frame(width: 400)
+    }
+}
+
+// Custom cursor icon view showing "abc" with I-beam between a and bc
+struct CursorIconView: View {
+    var body: some View {
+        ZStack(alignment: .leading) {
+            HStack(spacing: 1) {
+                Text("a")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.primary)
+                Text("bc")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.primary)
+                    .offset(x: 2)
+            }
+
+            // I-beam cursor
+            VStack(spacing: 0) {
+                // Top serif
+                Rectangle()
+                    .fill(Color.primary)
+                    .frame(width: 5, height: 1)
+
+                // Vertical bar
+                Rectangle()
+                    .fill(Color.primary)
+                    .frame(width: 1, height: 12)
+
+                // Bottom serif
+                Rectangle()
+                    .fill(Color.primary)
+                    .frame(width: 5, height: 1)
+            }
+            .offset(x: 6.0, y: 0.5)
+        }
     }
 }
