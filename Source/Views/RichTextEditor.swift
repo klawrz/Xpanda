@@ -60,6 +60,177 @@ class XpandaTextView: NSTextView {
     // Callback for fill-in attachment clicks
     var onFillInClicked: ((Int, String, String) -> Void)?
 
+    // Override to handle keyboard shortcuts
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Check for Cmd key
+        guard event.modifierFlags.contains(.command) else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        // Get the key pressed
+        guard let characters = event.charactersIgnoringModifiers else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch characters.lowercased() {
+        case "b":
+            // Toggle bold
+            toggleBold(nil)
+            return true
+        case "i":
+            // Toggle italic
+            toggleItalic(nil)
+            return true
+        case "u":
+            // Toggle underline
+            toggleUnderline(nil)
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    // Custom toggle methods that work on selection or typing attributes
+    func toggleBold(_ sender: Any?) {
+        let range = selectedRange()
+        if range.length > 0 {
+            // Has selection - toggle bold on selection
+            toggleTraitForSelection(.boldFontMask)
+        } else {
+            // No selection - toggle bold for future typing
+            toggleTypingAttribute(.boldFontMask)
+        }
+    }
+
+    func toggleItalic(_ sender: Any?) {
+        let range = selectedRange()
+        if range.length > 0 {
+            // Has selection - toggle italic on selection
+            toggleTraitForSelection(.italicFontMask)
+        } else {
+            // No selection - toggle italic for future typing
+            toggleTypingAttribute(.italicFontMask)
+        }
+    }
+
+    func toggleUnderline(_ sender: Any?) {
+        let range = selectedRange()
+        if range.length > 0 {
+            // Has selection - toggle underline on selection
+            toggleUnderlineForSelection()
+        } else {
+            // No selection - toggle underline for future typing
+            toggleTypingUnderline()
+        }
+    }
+
+    // Helper to toggle a font trait for selected text
+    private func toggleTraitForSelection(_ trait: NSFontTraitMask) {
+        guard let textStorage = textStorage else { return }
+        let range = selectedRange()
+        guard range.length > 0 else { return }
+
+        // Check if the first character has the trait
+        var hasTrait = false
+        if range.location < textStorage.length,
+           let font = textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont {
+            let symbolicTrait: NSFontDescriptor.SymbolicTraits = trait == .boldFontMask ? .bold : .italic
+            hasTrait = font.fontDescriptor.symbolicTraits.contains(symbolicTrait)
+        }
+
+        // Apply or remove the trait
+        textStorage.beginEditing()
+        textStorage.enumerateAttribute(.font, in: range, options: []) { value, subRange, _ in
+            if let currentFont = value as? NSFont {
+                let newFont: NSFont
+                if hasTrait {
+                    // Remove trait
+                    newFont = NSFontManager.shared.convert(currentFont, toNotHaveTrait: trait)
+                } else {
+                    // Add trait
+                    newFont = NSFontManager.shared.convert(currentFont, toHaveTrait: trait)
+                }
+                textStorage.addAttribute(.font, value: newFont, range: subRange)
+            }
+        }
+        textStorage.endEditing()
+
+        // Notify of change
+        didChangeText()
+    }
+
+    // Helper to toggle underline for selected text
+    private func toggleUnderlineForSelection() {
+        guard let textStorage = textStorage else { return }
+        let range = selectedRange()
+        guard range.length > 0 else { return }
+
+        // Check if the first character is underlined
+        var hasUnderline = false
+        if range.location < textStorage.length {
+            let underlineStyle = textStorage.attribute(.underlineStyle, at: range.location, effectiveRange: nil) as? Int
+            hasUnderline = (underlineStyle ?? 0) != 0
+        }
+
+        // Apply or remove underline
+        textStorage.beginEditing()
+        if hasUnderline {
+            textStorage.removeAttribute(.underlineStyle, range: range)
+        } else {
+            textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+        }
+        textStorage.endEditing()
+
+        // Notify of change
+        didChangeText()
+    }
+
+    // Helper to toggle a font trait for typing attributes
+    private func toggleTypingAttribute(_ trait: NSFontTraitMask) {
+        var attrs = typingAttributes
+
+        // Get current font or use default
+        let currentFont = attrs[.font] as? NSFont ?? NSFont.systemFont(ofSize: 13)
+
+        // Check if trait is currently active
+        let symbolicTrait: NSFontDescriptor.SymbolicTraits = trait == .boldFontMask ? .bold : .italic
+        let hasTrait = currentFont.fontDescriptor.symbolicTraits.contains(symbolicTrait)
+
+        // Toggle the trait
+        let newFont: NSFont
+        if hasTrait {
+            newFont = NSFontManager.shared.convert(currentFont, toNotHaveTrait: trait)
+        } else {
+            newFont = NSFontManager.shared.convert(currentFont, toHaveTrait: trait)
+        }
+
+        attrs[.font] = newFont
+        typingAttributes = attrs
+
+        // Notify change for toolbar update
+        didChangeText()
+    }
+
+    // Helper to toggle underline for typing attributes
+    private func toggleTypingUnderline() {
+        var attrs = typingAttributes
+
+        // Check current underline state
+        let currentUnderline = attrs[.underlineStyle] as? Int ?? 0
+
+        // Toggle underline
+        if currentUnderline != 0 {
+            attrs.removeValue(forKey: .underlineStyle)
+        } else {
+            attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+
+        typingAttributes = attrs
+
+        // Notify change for toolbar update
+        didChangeText()
+    }
+
     // Override to disable link clicking at the mouse event level
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
@@ -532,8 +703,8 @@ struct RichTextToolbar: View {
         let range = textView.selectedRange()
         let location = range.location
 
-        // Check for zero-length selection (cursor position)
-        if range.length == 0 && location > 0 {
+        // Check for zero-length selection (cursor position or empty document)
+        if range.length == 0 {
             // Use typing attributes for cursor position
             if let font = textView.typingAttributes[.font] as? NSFont {
                 isBoldActive = font.fontDescriptor.symbolicTraits.contains(.bold)
