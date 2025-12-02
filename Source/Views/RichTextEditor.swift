@@ -2,18 +2,26 @@ import SwiftUI
 import AppKit
 
 // Wrapper that includes both the toolbar and editor
+struct FillInClickData: Equatable {
+    let index: Int
+    let label: String
+    let defaultValue: String
+}
+
 struct RichTextEditorWithToolbar: View {
     @Binding var attributedString: NSAttributedString
     @StateObject private var textViewHolder = RichTextViewHolder()
     @State private var linkClickedAt: Int? = nil
+    @State private var fillInClickedData: FillInClickData? = nil
 
     var body: some View {
         VStack(spacing: 0) {
-            RichTextToolbar(textViewHolder: textViewHolder, linkClickedAt: $linkClickedAt)
+            RichTextToolbar(textViewHolder: textViewHolder, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData)
             RichTextEditor(
                 attributedString: $attributedString,
                 textViewHolder: textViewHolder,
-                linkClickedAt: $linkClickedAt
+                linkClickedAt: $linkClickedAt,
+                fillInClickedData: $fillInClickedData
             )
                 .border(Color.secondary.opacity(0.2))
         }
@@ -49,10 +57,28 @@ class XpandaTextView: NSTextView {
         }
     }
 
+    // Callback for fill-in attachment clicks
+    var onFillInClicked: ((Int, String, String) -> Void)?
+
     // Override to disable link clicking at the mouse event level
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let charIndex = characterIndexForInsertion(at: point)
+
+        // Check if clicking on an attachment (fill-in pill)
+        if charIndex < textStorage?.length ?? 0,
+           let storage = textStorage,
+           let attachment = storage.attribute(.attachment, at: charIndex, effectiveRange: nil) as? NSTextAttachment,
+           let fileWrapper = attachment.fileWrapper,
+           let data = fileWrapper.regularFileContents,
+           let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: String],
+           json["type"] == "fillin_single",
+           let label = json["label"],
+           let defaultValue = json["default"] {
+            // Handle fill-in click
+            onFillInClicked?(charIndex, label, defaultValue)
+            return
+        }
 
         // Check if clicking on a link
         if charIndex < textStorage?.length ?? 0,
@@ -76,6 +102,7 @@ struct RichTextEditor: NSViewRepresentable {
     @Binding var attributedString: NSAttributedString
     @ObservedObject var textViewHolder: RichTextViewHolder
     @Binding var linkClickedAt: Int?
+    @Binding var fillInClickedData: FillInClickData?
     var isEditable: Bool = true
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -133,6 +160,12 @@ struct RichTextEditor: NSViewRepresentable {
             .font: NSFont.systemFont(ofSize: 13),
             .foregroundColor: NSColor.labelColor
         ]
+
+        // Set up fill-in click handler
+        let coordinator = context.coordinator
+        textView.onFillInClicked = { charIndex, label, defaultValue in
+            coordinator.handleFillInClick(at: charIndex, label: label, defaultValue: defaultValue)
+        }
 
         // Store reference to textView
         DispatchQueue.main.async {
@@ -192,6 +225,11 @@ struct RichTextEditor: NSViewRepresentable {
             return false  // Don't open in browser
         }
 
+        // Handle fill-in pill clicks
+        func handleFillInClick(at index: Int, label: String, defaultValue: String) {
+            parent.fillInClickedData = FillInClickData(index: index, label: label, defaultValue: defaultValue)
+        }
+
         // Fix typing attributes when selection changes (e.g., after moving cursor past an attachment)
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
@@ -236,6 +274,7 @@ struct RichTextEditor: NSViewRepresentable {
 struct RichTextToolbar: View {
     @ObservedObject var textViewHolder: RichTextViewHolder
     @Binding var linkClickedAt: Int?
+    @Binding var fillInClickedData: FillInClickData?
     @State private var isBoldActive = false
     @State private var isItalicActive = false
     @State private var isUnderlineActive = false
@@ -244,6 +283,10 @@ struct RichTextToolbar: View {
     @State private var linkURL = ""
     @State private var linkText = ""
     @State private var editingLinkRange: NSRange? = nil
+    @State private var showingFillInDialog = false
+    @State private var fillInLabel = ""
+    @State private var fillInDefault = ""
+    @State private var editingFillInRange: NSRange? = nil
 
     var body: some View {
         HStack(spacing: 4) {
@@ -342,8 +385,18 @@ struct RichTextToolbar: View {
             .cornerRadius(6)
             .help("Position Cursor Here")
 
-            // Insert Fill-In
-            Button(action: { insertFillIn() }) {
+            // Insert Fill-In Menu
+            Menu {
+                Button("Single") {
+                    insertFillIn(type: .single)
+                }
+                Button("Multi") {
+                    insertFillIn(type: .multi)
+                }
+                Button("Select") {
+                    insertFillIn(type: .select)
+                }
+            } label: {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
@@ -351,6 +404,7 @@ struct RichTextToolbar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .menuIndicator(.hidden)
             .background(Color.gray.opacity(0.1))
             .cornerRadius(6)
             .help("Insert Fill-In")
@@ -412,6 +466,28 @@ struct RichTextToolbar: View {
             // Reset the trigger
             linkClickedAt = nil
         }
+        .onChange(of: fillInClickedData) { clickedData in
+            guard let data = clickedData,
+                  let textView = textViewHolder.textView,
+                  let storage = textView.textStorage else { return }
+
+            // Find the fill-in attachment at this position
+            let charIndex = data.index
+            if charIndex < storage.length {
+                // Set the edit range
+                editingFillInRange = NSRange(location: charIndex, length: 1)
+
+                // Pre-fill the form with existing data
+                fillInLabel = data.label
+                fillInDefault = data.defaultValue
+
+                // Show the dialog
+                showingFillInDialog = true
+            }
+
+            // Reset the trigger
+            fillInClickedData = nil
+        }
         .sheet(isPresented: $showingLinkDialog) {
             LinkInputDialog(
                 linkURL: $linkURL,
@@ -422,6 +498,19 @@ struct RichTextToolbar: View {
                 },
                 onCancel: {
                     showingLinkDialog = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingFillInDialog) {
+            FillInInputDialog(
+                label: $fillInLabel,
+                defaultValue: $fillInDefault,
+                onInsert: {
+                    insertFillInWithDetails()
+                    showingFillInDialog = false
+                },
+                onCancel: {
+                    showingFillInDialog = false
                 }
             )
         }
@@ -660,9 +749,27 @@ struct RichTextToolbar: View {
         textView.window?.makeFirstResponder(textView)
     }
 
-    private func insertFillIn() {
-        // TODO: Implement fill-in insertion
-        print("Insert Fill-In clicked")
+    enum FillInType {
+        case single
+        case multi
+        case select
+    }
+
+    private func insertFillIn(type: FillInType) {
+        switch type {
+        case .single:
+            // Clear form and show dialog
+            fillInLabel = ""
+            fillInDefault = ""
+            editingFillInRange = nil
+            showingFillInDialog = true
+        case .multi:
+            // TODO: Implement multi fill-in
+            print("Multi fill-in clicked")
+        case .select:
+            // TODO: Implement select fill-in
+            print("Select fill-in clicked")
+        }
     }
 
     private func insertLink() {
@@ -727,6 +834,42 @@ struct RichTextToolbar: View {
 
         // Clear editing range
         editingLinkRange = nil
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    private func insertFillInWithDetails() {
+        guard let textView = textViewHolder.textView,
+              !fillInLabel.isEmpty else { return }
+
+        // Use the editing range if we're editing an existing fill-in, otherwise use selection
+        let range = editingFillInRange ?? textView.selectedRange()
+
+        // Create fill-in pill
+        let pillString = PlaceholderPillRenderer.createFillInDisplayString(
+            label: fillInLabel,
+            defaultValue: fillInDefault
+        )
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        // Clear editing range
+        editingFillInRange = nil
         textView.window?.makeFirstResponder(textView)
     }
 
@@ -947,6 +1090,55 @@ struct LinkInputDialog: View {
     }
 }
 
+// Fill-in input dialog
+struct FillInInputDialog: View {
+    @Binding var label: String
+    @Binding var defaultValue: String
+    let onInsert: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Single Fill-In")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Label")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("e.g., Name", text: $label)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Default Value")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("Optional", text: $defaultValue)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Insert") {
+                    onInsert()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(label.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+    }
+}
+
 // Custom cursor icon view showing "abc" with I-beam between a and bc
 struct CursorIconView: View {
     var body: some View {
@@ -979,6 +1171,30 @@ struct CursorIconView: View {
                     .frame(width: 5, height: 1)
             }
             .offset(x: 6.0, y: 0.5)
+        }
+    }
+}
+
+// Custom fill-in field icon
+struct FillInFieldIcon: View {
+    var body: some View {
+        VStack {
+            ZStack {
+                // Rectangle border representing a text field
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(Color.primary, lineWidth: 1.5)
+                    .frame(width: 30, height: 16)
+
+                // Placeholder lines inside (like empty text field)
+                HStack(spacing: 3) {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.4))
+                        .frame(width: 10, height: 2)
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.4))
+                        .frame(width: 8, height: 2)
+                }
+            }
         }
     }
 }

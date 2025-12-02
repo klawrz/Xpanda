@@ -116,6 +116,68 @@ class PlaceholderPillAttachmentCell: NSTextAttachmentCell {
     }
 }
 
+// Custom attachment cell for fill-in pills
+class FillInPillAttachmentCell: NSTextAttachmentCell {
+    let label: String
+    let defaultValue: String
+
+    init(label: String, defaultValue: String) {
+        self.label = label
+        self.defaultValue = defaultValue
+        super.init()
+    }
+
+    required init(coder: NSCoder) {
+        self.label = ""
+        self.defaultValue = ""
+        super.init(coder: coder)
+    }
+
+    override func cellSize() -> NSSize {
+        // Show "single fill" as the display text
+        let text = "single fill"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemGray
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        return NSSize(width: textSize.width + 8, height: 18)
+    }
+
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        // Draw rounded rectangle pill (same style as placeholder pills)
+        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 3, yRadius: 3)
+
+        // Fill with light grey background
+        NSColor.systemGray.withAlphaComponent(0.2).setFill()
+        path.fill()
+
+        // Draw grey border
+        NSColor.systemGray.withAlphaComponent(0.3).setStroke()
+        path.lineWidth = 1.0
+        path.stroke()
+
+        // Draw label text
+        let text = "single fill"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemGray
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        let textRect = NSRect(
+            x: cellFrame.origin.x + (cellFrame.width - textSize.width) / 2,
+            y: cellFrame.origin.y + (cellFrame.height - textSize.height) / 2 + 1,
+            width: textSize.width,
+            height: textSize.height
+        )
+        text.draw(in: textRect, withAttributes: attrs)
+    }
+
+    override func cellBaselineOffset() -> NSPoint {
+        return NSPoint(x: 0, y: -3)
+    }
+}
+
 // Helper class to render placeholder pills
 class PlaceholderPillRenderer {
     // Convert storage text to display attributed string with pill styling
@@ -130,6 +192,29 @@ class PlaceholderPillRenderer {
         let wrapper = FileWrapper(regularFileWithContents: markerData)
         wrapper.preferredFilename = "\(token.rawValue).txt"
         attachment.fileWrapper = wrapper
+
+        return NSAttributedString(attachment: attachment)
+    }
+
+    // Create a fill-in pill with label and default value
+    static func createFillInDisplayString(label: String, defaultValue: String) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+
+        // Use custom cell for rendering
+        attachment.attachmentCell = FillInPillAttachmentCell(label: label, defaultValue: defaultValue)
+
+        // Store the fill-in data as JSON in the attachment
+        let fillInData: [String: String] = [
+            "type": "fillin_single",
+            "label": label,
+            "default": defaultValue
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: fillInData, options: []) {
+            let wrapper = FileWrapper(regularFileWithContents: jsonData)
+            wrapper.preferredFilename = "fillin_single.json"
+            attachment.fileWrapper = wrapper
+        }
 
         return NSAttributedString(attachment: attachment)
     }
@@ -154,6 +239,32 @@ class XPHelper {
             mutableString.replaceCharacters(in: range, with: pillString)
         }
 
+        // Find and replace fill-in tokens
+        let nsText = mutableString.string as NSString
+        var fillInReplacements: [(range: NSRange, label: String, defaultValue: String)] = []
+
+        // Pattern: {{fillin_single|label|defaultValue}}
+        let pattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let matches = regex.matches(in: mutableString.string, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches.reversed() {
+                let labelRange = match.range(at: 1)
+                let defaultRange = match.range(at: 2)
+                let label = nsText.substring(with: labelRange)
+                let defaultValue = nsText.substring(with: defaultRange)
+                fillInReplacements.append((range: match.range, label: label, defaultValue: defaultValue))
+            }
+        }
+
+        // Replace fill-in tokens with pills
+        for replacement in fillInReplacements {
+            let pillString = PlaceholderPillRenderer.createFillInDisplayString(
+                label: replacement.label,
+                defaultValue: replacement.defaultValue
+            )
+            mutableString.replaceCharacters(in: replacement.range, with: pillString)
+        }
+
         return mutableString
     }
 
@@ -168,11 +279,23 @@ class XPHelper {
         mutableString.enumerateAttribute(.attachment, in: fullRange, options: [.reverse]) { value, range, _ in
             if let attachment = value as? NSTextAttachment,
                let fileWrapper = attachment.fileWrapper,
-               let data = fileWrapper.regularFileContents,
-               let storageText = String(data: data, encoding: .utf8),
-               storageText.hasPrefix("{{") && storageText.hasSuffix("}}") {
-                // This is one of our placeholder tokens
-                replacements.append((range: range, text: storageText))
+               let data = fileWrapper.regularFileContents {
+
+                // Check if it's a fill-in attachment (JSON)
+                if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: String],
+                   json["type"] == "fillin_single",
+                   let label = json["label"],
+                   let defaultValue = json["default"] {
+                    // Convert to storage format: {{fillin_single|label|defaultValue}}
+                    let storageText = "{{fillin_single|\(label)|\(defaultValue)}}"
+                    replacements.append((range: range, text: storageText))
+                }
+                // Check if it's a placeholder token (plain text)
+                else if let storageText = String(data: data, encoding: .utf8),
+                        storageText.hasPrefix("{{") && storageText.hasSuffix("}}") {
+                    // This is one of our placeholder tokens
+                    replacements.append((range: range, text: storageText))
+                }
             }
         }
 
@@ -271,6 +394,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
                     options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
                     documentAttributes: nil
                 )
+
                 return loadedString.string
             } catch {
                 return expansion

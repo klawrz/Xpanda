@@ -12,6 +12,10 @@ class ExpansionEngine {
 
     private var isEnabled = true
 
+    // Associated object keys for button handlers
+    private static var cancelButtonPanelKey: UInt8 = 0
+    private static var insertButtonWrapperKey: UInt8 = 0
+
     func start() {
         // Check for accessibility permissions (will prompt automatically if needed)
         guard checkAccessibilityPermissions() else {
@@ -151,24 +155,34 @@ class ExpansionEngine {
         // Temporarily disable the event tap during expansion to prevent interference
         isEnabled = false
 
-        // Delete the keyword by simulating backspaces
-        DispatchQueue.main.async {
-            self.deleteText(count: xp.keyword.count)
+        // Check if expansion contains fill-in fields
+        let fillInFields = detectFillInFields(in: xp)
 
-            // Wait a bit for deletions to process
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                // Use paste method for all expansions (faster and more reliable)
-                self.pasteExpansion(xp)
+        if !fillInFields.isEmpty {
+            // Show fill-in dialog on main thread
+            DispatchQueue.main.async {
+                self.showFillInDialog(for: xp, fields: fillInFields, proxy: proxy)
+            }
+        } else {
+            // No fill-ins, proceed with normal expansion
+            DispatchQueue.main.async {
+                self.deleteText(count: xp.keyword.count)
 
-                // Re-enable event tap after expansion completes
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    self.isEnabled = true
+                // Wait a bit for deletions to process
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    // Paste the expansion (fast and reliable)
+                    self.pasteExpansion(xp, fillInValues: [:])
 
-                    // Add experience for using this XP
-                    let leveledUp = XPManager.shared.addExperienceForExpansion()
-                    if leveledUp {
-                        // TODO: Show level-up notification
-                        print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                    // Re-enable event tap after expansion completes
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.isEnabled = true
+
+                        // Add experience for using this XP
+                        let leveledUp = XPManager.shared.addExperienceForExpansion()
+                        if leveledUp {
+                            // TODO: Show level-up notification
+                            print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                        }
                     }
                 }
             }
@@ -188,17 +202,10 @@ class ExpansionEngine {
         }
     }
 
-    private func typeText(_ text: String) {
-        // Adjust typing speed based on text length
-        // Longer text = slower to prevent system overload
-        let delay: TimeInterval
-        if text.count > 200 {
-            delay = 0.02  // Very long text: 20ms per character
-        } else if text.count > 50 {
-            delay = 0.015 // Long text: 15ms per character
-        } else {
-            delay = 0.01  // Short text: 10ms per character
-        }
+    private func typeText(_ text: String) -> TimeInterval {
+        // Use a consistent, slower typing speed for reliability
+        // This prevents characters from being dropped or reordered
+        let delay: TimeInterval = 0.02 // 20ms per character (50 chars/second)
 
         for char in text {
             // Type all characters (including newlines) as unicode strings
@@ -213,9 +220,65 @@ class ExpansionEngine {
             }
             Thread.sleep(forTimeInterval: delay)
         }
+
+        // Return total time taken to type
+        return Double(text.count) * delay
     }
 
-    private func pasteExpansion(_ xp: XP) {
+    private func typeExpansion(_ xp: XP, fillInValues: [String: String]) -> TimeInterval {
+        // Read clipboard content (but don't modify it)
+        let pasteboard = NSPasteboard.general
+        let clipboardContent = pasteboard.string(forType: .string) ?? ""
+
+        print("⌨️ Typing expansion for XP: \(xp.keyword)")
+        print("   Clipboard content (read-only): \(clipboardContent)")
+        print("   Fill-in values: \(fillInValues)")
+
+        var cursorOffset: Int? = nil
+        var textToType: String = ""
+
+        if xp.outputPlainText {
+            // Process placeholder replacement for plain text
+            print("   → Using plain text output mode")
+            let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: clipboardContent, fillInValues: fillInValues)
+            cursorOffset = offset
+            textToType = processedText
+        } else if xp.isRichText, let attributedString = xp.attributedString {
+            // Process placeholder replacement for rich text - convert to plain text
+            print("   → Using rich text mode (converting to plain text)")
+            let (processedAttributedString, offset) = replacePlaceholders(in: attributedString, clipboardContent: clipboardContent, fillInValues: fillInValues)
+            cursorOffset = offset
+            textToType = processedAttributedString.string
+        } else {
+            // Process placeholder replacement for plain text
+            print("   → Using fallback plain text mode")
+            let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: clipboardContent, fillInValues: fillInValues)
+            cursorOffset = offset
+            textToType = processedText
+        }
+
+        // Type the text and get timing
+        let typingTime = typeText(textToType)
+        print("   Typed \(textToType.count) characters in \(typingTime) seconds")
+
+        // Reposition cursor if needed
+        if let offset = cursorOffset {
+            let stepsBack = textToType.count - offset
+
+            print("🎯 Repositioning cursor:")
+            print("   Text length: \(textToType.count)")
+            print("   Cursor should be at: \(offset)")
+            print("   Steps back from end: \(stepsBack)")
+
+            // Move cursor left by the calculated steps
+            moveCursorLeft(steps: stepsBack)
+        }
+
+        print("   ✓ Expansion typed (clipboard untouched)")
+        return typingTime
+    }
+
+    private func pasteExpansion(_ xp: XP, fillInValues: [String: String]) {
         let pasteboard = NSPasteboard.general
 
         // Save current clipboard contents before we clear it
@@ -226,6 +289,7 @@ class ExpansionEngine {
         print("   XP.expansion plain text: \(xp.expansion)")
         print("   XP.isRichText: \(xp.isRichText)")
         print("   XP.outputPlainText: \(xp.outputPlainText)")
+        print("   Fill-in values: \(fillInValues)")
 
         pasteboard.clearContents()
 
@@ -234,19 +298,19 @@ class ExpansionEngine {
         if xp.outputPlainText {
             // Process placeholder replacement for plain text
             print("   → Using plain text output mode")
-            let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "")
+            let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
             pasteboard.setString(processedText, forType: .string)
         } else if xp.isRichText, let attributedString = xp.attributedString {
             // Process placeholder replacement for rich text
             print("   → Using rich text mode")
-            let (processedAttributedString, offset) = replacePlaceholders(in: attributedString, clipboardContent: savedClipboardString ?? "")
+            let (processedAttributedString, offset) = replacePlaceholders(in: attributedString, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
             pasteboard.writeObjects([processedAttributedString])
         } else {
             // Process placeholder replacement for plain text
             print("   → Using fallback plain text mode")
-            let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "")
+            let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
             pasteboard.setString(processedText, forType: .string)
         }
@@ -271,10 +335,11 @@ class ExpansionEngine {
             keyUpEvent.post(tap: .cghidEventTap)
         }
 
+        // Wait for paste to complete before any further operations
+        Thread.sleep(forTimeInterval: 0.1)
+
         // Reposition cursor if needed
         if let offset = cursorOffset {
-            Thread.sleep(forTimeInterval: 0.1) // Wait for paste to complete
-
             // Get the final text length from pasteboard to calculate cursor position
             if let pastedString = pasteboard.string(forType: .string) {
                 let textLength = pastedString.count
@@ -287,6 +352,21 @@ class ExpansionEngine {
 
                 // Move cursor left by the calculated steps
                 moveCursorLeft(steps: stepsBack)
+            }
+        }
+
+        // Restore original clipboard contents after a safe delay (2 seconds)
+        // This gives all applications enough time to read from the clipboard
+        // Use a background thread to avoid blocking
+        DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 2.0) {
+            let pasteboard = NSPasteboard.general
+            if let savedClipboard = savedClipboardString {
+                pasteboard.clearContents()
+                pasteboard.setString(savedClipboard, forType: .string)
+                print("   ✓ Restored original clipboard content after 2 second delay")
+            } else {
+                pasteboard.clearContents()
+                print("   ✓ Cleared clipboard after 2 second delay (was empty before)")
             }
         }
     }
@@ -315,7 +395,7 @@ class ExpansionEngine {
 
     // MARK: - Placeholder Replacement
 
-    private func replacePlaceholders(in text: String, clipboardContent: String) -> (text: String, cursorOffset: Int?) {
+    private func replacePlaceholders(in text: String, clipboardContent: String, fillInValues: [String: String]) -> (text: String, cursorOffset: Int?) {
         var result = text
         var cursorOffset: Int? = nil
 
@@ -332,7 +412,52 @@ class ExpansionEngine {
         result = result.replacingOccurrences(of: PlaceholderToken.cursor.storageText, with: "")
 
         // Replace {{clipboard}} with actual clipboard content
-        result = result.replacingOccurrences(of: PlaceholderToken.clipboard.storageText, with: clipboardContent)
+        // Track changes to adjust cursor offset
+        if let offset = cursorOffset {
+            let clipboardToken = PlaceholderToken.clipboard.storageText
+            var searchPos = result.startIndex
+
+            while let range = result.range(of: clipboardToken, range: searchPos..<result.endIndex) {
+                let rangeOffset = result.distance(from: result.startIndex, to: range.lowerBound)
+
+                // Only adjust cursor if replacement is before cursor
+                if rangeOffset < offset {
+                    let lengthDiff = clipboardContent.count - clipboardToken.count
+                    cursorOffset = offset + lengthDiff
+                }
+
+                result.replaceSubrange(range, with: clipboardContent)
+
+                // Update search position
+                let newPos = result.index(result.startIndex, offsetBy: rangeOffset + clipboardContent.count)
+                if newPos >= result.endIndex { break }
+                searchPos = newPos
+            }
+        } else {
+            result = result.replacingOccurrences(of: PlaceholderToken.clipboard.storageText, with: clipboardContent)
+        }
+
+        // Replace fill-in fields (pattern: {{fillin_single|label|defaultValue}})
+        let pattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+
+            // Replace in reverse order to maintain correct indices
+            for match in matches.reversed() {
+                let labelRange = match.range(at: 1)
+                let label = nsText.substring(with: labelRange)
+                let replacement = fillInValues[label] ?? ""
+
+                // Adjust cursor offset if replacement is before cursor
+                if let offset = cursorOffset, match.range.location < offset {
+                    let lengthDiff = replacement.count - match.range.length
+                    cursorOffset = offset + lengthDiff
+                }
+
+                result = (result as NSString).replacingCharacters(in: match.range, with: replacement)
+            }
+        }
 
         print("   Result: \(result)")
         print("   Cursor offset: \(cursorOffset?.description ?? "none")")
@@ -340,7 +465,7 @@ class ExpansionEngine {
         return (result, cursorOffset)
     }
 
-    private func replacePlaceholders(in attributedString: NSAttributedString, clipboardContent: String) -> (attributedString: NSAttributedString, cursorOffset: Int?) {
+    private func replacePlaceholders(in attributedString: NSAttributedString, clipboardContent: String, fillInValues: [String: String]) -> (attributedString: NSAttributedString, cursorOffset: Int?) {
         let mutableString = NSMutableAttributedString(attributedString: attributedString)
         let fullRange = NSRange(location: 0, length: mutableString.length)
         var cursorOffset: Int? = nil
@@ -355,35 +480,63 @@ class ExpansionEngine {
         mutableString.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
             if let attachment = value as? NSTextAttachment,
                let fileWrapper = attachment.fileWrapper,
-               let data = fileWrapper.regularFileContents,
-               let storageText = String(data: data, encoding: .utf8) {
+               let data = fileWrapper.regularFileContents {
 
-                print("   ✓ Found attachment at range: \(range) with text: \(storageText)")
+                // Check if it's a fill-in attachment (JSON)
+                if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: String],
+                   json["type"] == "fillin_single",
+                   let label = json["label"] {
+                    print("   ✓ Found fill-in attachment at range: \(range) with label: \(label)")
 
-                // Determine replacement based on placeholder type
-                var replacementText = ""
-                if storageText == PlaceholderToken.clipboard.storageText {
-                    replacementText = clipboardContent
-                    print("     → Clipboard placeholder, replacing with clipboard content")
-                } else if storageText == PlaceholderToken.cursor.storageText {
-                    replacementText = "" // Remove cursor placeholder
-                    if cursorOffset == nil {
-                        cursorOffset = range.location
-                        print("     → Cursor placeholder found at offset: \(range.location)")
+                    let replacementText = fillInValues[label] ?? ""
+                    print("     → Replacing with value: \(replacementText)")
+
+                    // Get attributes at this location to preserve formatting
+                    var attributes: [NSAttributedString.Key: Any] = [:]
+                    if range.location < mutableString.length {
+                        attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
+                        attributes[.font] = NSFont.systemFont(ofSize: 13)
+                        attributes[.foregroundColor] = NSColor.labelColor
                     }
+                    indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
                 }
+                // Check if it's a placeholder token (plain text)
+                else if let storageText = String(data: data, encoding: .utf8) {
+                    print("   ✓ Found attachment at range: \(range) with text: \(storageText)")
 
-                // Found a placeholder attachment
-                var attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
-                attributes.removeValue(forKey: .attachment)
-                indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
+                    // Determine replacement based on placeholder type
+                    var replacementText = ""
+                    if storageText == PlaceholderToken.clipboard.storageText {
+                        replacementText = clipboardContent
+                        print("     → Clipboard placeholder, replacing with clipboard content")
+                    } else if storageText == PlaceholderToken.cursor.storageText {
+                        replacementText = "" // Remove cursor placeholder
+                        if cursorOffset == nil {
+                            cursorOffset = range.location
+                            print("     → Cursor placeholder found at offset: \(range.location)")
+                        }
+                    }
+
+                    // Found a placeholder attachment
+                    var attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
+                    attributes.removeValue(forKey: .attachment)
+                    indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
+                }
             }
         }
 
         print("   Found \(indicesToReplace.count) placeholder attachments")
 
         // Replace attachments in reverse order to maintain correct ranges
+        // Track cursor offset adjustments
         for item in indicesToReplace.reversed() {
+            // Adjust cursor offset if this replacement is before the cursor
+            if let offset = cursorOffset, item.range.location < offset {
+                let lengthDiff = item.replacementText.count - item.range.length
+                cursorOffset = offset + lengthDiff
+                print("   ✓ Adjusting cursor offset by \(lengthDiff) to \(cursorOffset!)")
+            }
+
             let replacement = NSAttributedString(string: item.replacementText, attributes: item.attributes)
             mutableString.replaceCharacters(in: item.range, with: replacement)
             print("   ✓ Replaced attachment with: \"\(item.replacementText)\"")
@@ -410,6 +563,13 @@ class ExpansionEngine {
 
         // Replace U+FFFC characters in reverse order
         for item in replacementRanges.reversed() {
+            // Adjust cursor offset if this replacement is before the cursor
+            if let offset = cursorOffset, item.range.location < offset {
+                let lengthDiff = clipboardContent.count - item.range.length
+                cursorOffset = offset + lengthDiff
+                print("   ✓ Adjusting cursor offset by \(lengthDiff) to \(cursorOffset!)")
+            }
+
             let replacement = NSAttributedString(string: clipboardContent, attributes: item.attributes)
             mutableString.replaceCharacters(in: item.range, with: replacement)
             print("   ✓ Replaced U+FFFC with: \(clipboardContent)")
@@ -427,6 +587,13 @@ class ExpansionEngine {
             }
 
             print("   ✓ Found \(pattern) at range: \(foundRange)")
+
+            // Adjust cursor offset if this replacement is before the cursor
+            if let offset = cursorOffset, foundRange.location < offset {
+                let lengthDiff = clipboardContent.count - foundRange.length
+                cursorOffset = offset + lengthDiff
+                print("   ✓ Adjusting cursor offset by \(lengthDiff) to \(cursorOffset!)")
+            }
 
             // Get the attributes at this location (to preserve formatting around the placeholder)
             var attributes: [NSAttributedString.Key: Any] = [:]
@@ -486,5 +653,368 @@ class ExpansionEngine {
 
         print("   Final cursor offset: \(cursorOffset?.description ?? "none")")
         return (mutableString, cursorOffset)
+    }
+
+    // MARK: - Fill-In Field Handling
+
+    struct FillInField {
+        let label: String
+        let defaultValue: String
+    }
+
+    // Wrapper class to store fill-in dialog data for associated objects
+    class FillInDataWrapper {
+        let textFields: [(label: String, field: NSTextField)]
+        let panel: NSPanel
+        let xp: XP
+
+        init(textFields: [(label: String, field: NSTextField)], panel: NSPanel, xp: XP) {
+            self.textFields = textFields
+            self.panel = panel
+            self.xp = xp
+        }
+    }
+
+    // Flipped view for top-to-bottom layout
+    class FlippedView: NSView {
+        override var isFlipped: Bool { return true }
+    }
+
+    private func detectFillInFields(in xp: XP) -> [FillInField] {
+        var fields: [FillInField] = []
+
+        // Get the text to search
+        let textToSearch: String
+        if xp.isRichText, let data = xp.richTextData,
+           let loadedString = try? NSAttributedString(
+               data: data,
+               options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
+               documentAttributes: nil
+           ) {
+            textToSearch = loadedString.string
+        } else {
+            textToSearch = xp.expansion
+        }
+
+        // Pattern: {{fillin_single|label|defaultValue}}
+        let pattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let nsText = textToSearch as NSString
+            let matches = regex.matches(in: textToSearch, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches {
+                let labelRange = match.range(at: 1)
+                let defaultRange = match.range(at: 2)
+                let label = nsText.substring(with: labelRange)
+                let defaultValue = nsText.substring(with: defaultRange)
+                fields.append(FillInField(label: label, defaultValue: defaultValue))
+            }
+        }
+
+        return fields
+    }
+
+    private func showFillInDialog(for xp: XP, fields: [FillInField], proxy: CGEventTapProxy) {
+        print("🎯 Showing fill-in dialog for \(fields.count) fields")
+
+        // Get the expansion text
+        let expansionText: String
+        if xp.isRichText, let data = xp.richTextData,
+           let loadedString = try? NSAttributedString(
+               data: data,
+               options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
+               documentAttributes: nil
+           ) {
+            expansionText = loadedString.string
+        } else {
+            expansionText = xp.expansion
+        }
+
+        print("   Expansion text: \(expansionText)")
+
+        // Create a floating panel that doesn't steal focus
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .closable, .nonactivatingPanel, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Fill in values"
+        panel.level = .floating
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.minSize = NSSize(width: 400, height: 300)
+        panel.center()
+
+        // Create main container with flipped coordinates
+        let containerView = FlippedView(frame: panel.contentView!.bounds)
+        containerView.autoresizingMask = [.width, .height]
+
+        var yOffset: CGFloat = 16
+
+        // Create preview section
+        let previewLabel = NSTextField(labelWithString: "Preview:")
+        previewLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        previewLabel.frame = NSRect(x: 16, y: yOffset, width: 468, height: 20)
+        containerView.addSubview(previewLabel)
+        yOffset += 24
+
+        // Create preview text view (scrollable)
+        let previewScrollView = NSScrollView(frame: NSRect(x: 16, y: yOffset, width: 468, height: 120))
+        previewScrollView.hasVerticalScroller = true
+        previewScrollView.autohidesScrollers = true
+        previewScrollView.borderType = .bezelBorder
+        previewScrollView.autoresizingMask = [.width]
+
+        let previewTextView = NSTextView(frame: previewScrollView.bounds)
+        previewTextView.isEditable = false
+        previewTextView.isSelectable = true
+        previewTextView.font = NSFont.systemFont(ofSize: 13)
+        previewTextView.backgroundColor = NSColor.controlBackgroundColor
+        previewTextView.textContainerInset = NSSize(width: 8, height: 8)
+        previewTextView.autoresizingMask = [.width]
+
+        previewScrollView.documentView = previewTextView
+        containerView.addSubview(previewScrollView)
+        yOffset += 128
+
+        // Create divider
+        let divider = NSBox(frame: NSRect(x: 0, y: yOffset, width: 500, height: 1))
+        divider.boxType = .separator
+        divider.autoresizingMask = [.width]
+        containerView.addSubview(divider)
+        yOffset += 12
+
+        // Create fields section
+        let fieldsLabel = NSTextField(labelWithString: "Fill in the fields:")
+        fieldsLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        fieldsLabel.frame = NSRect(x: 16, y: yOffset, width: 468, height: 20)
+        containerView.addSubview(fieldsLabel)
+        yOffset += 24
+
+        // Create text fields for each fill-in
+        var textFields: [(label: String, field: NSTextField)] = []
+
+        for field in fields {
+            // Add field label
+            let label = NSTextField(labelWithString: field.label)
+            label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            label.textColor = .secondaryLabelColor
+            label.frame = NSRect(x: 16, y: yOffset, width: 468, height: 16)
+            containerView.addSubview(label)
+            yOffset += 20
+
+            // Add text field
+            let textField = NSTextField(string: field.defaultValue)
+            textField.placeholderString = field.label
+            textField.font = NSFont.systemFont(ofSize: 13)
+            textField.frame = NSRect(x: 16, y: yOffset, width: 468, height: 24)
+            containerView.addSubview(textField)
+            textFields.append((label: field.label, field: textField))
+            yOffset += 32
+        }
+
+        yOffset += 8
+
+        print("   Created \(textFields.count) text fields")
+
+        // Function to update preview
+        let updatePreview = {
+            var previewText = expansionText
+
+            // Replace each fill-in pattern with its current value
+            for (label, field) in textFields {
+                let pattern = "\\{\\{fillin_single\\|\(NSRegularExpression.escapedPattern(for: label))\\|[^}]*\\}\\}"
+                if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                    let range = NSRange(location: 0, length: (previewText as NSString).length)
+                    previewText = regex.stringByReplacingMatches(
+                        in: previewText,
+                        options: [],
+                        range: range,
+                        withTemplate: field.stringValue
+                    )
+                }
+            }
+
+            previewTextView.string = previewText
+        }
+
+        // Initial preview update
+        updatePreview()
+
+        // Add observers to text fields to update preview on change
+        for (_, field) in textFields {
+            field.target = nil
+            field.action = #selector(NSTextField.selectText(_:))
+
+            // Use NotificationCenter to observe text changes
+            NotificationCenter.default.addObserver(
+                forName: NSControl.textDidChangeNotification,
+                object: field,
+                queue: .main
+            ) { _ in
+                updatePreview()
+            }
+        }
+
+        // Create buttons at bottom
+        let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
+        cancelButton.frame = NSRect(x: 20, y: yOffset + 8, width: 80, height: 30)
+        cancelButton.bezelStyle = .rounded
+        cancelButton.keyEquivalent = "\u{1b}" // Escape key
+        containerView.addSubview(cancelButton)
+
+        let insertButton = NSButton(title: "Insert", target: nil, action: nil)
+        insertButton.frame = NSRect(x: 400, y: yOffset + 8, width: 80, height: 30)
+        insertButton.bezelStyle = .rounded
+        insertButton.keyEquivalent = "\r" // Return key
+        containerView.addSubview(insertButton)
+
+        yOffset += 50
+
+        // Update container view size to fit all content
+        containerView.frame.size.height = yOffset + 16
+
+        // Adjust panel height to fit content
+        var panelFrame = panel.frame
+        panelFrame.size.height = min(max(yOffset + 16, 400), 700) // Min 400, max 700
+        panel.setFrame(panelFrame, display: false)
+        panel.center()
+
+        panel.contentView = containerView
+
+        // Handle button actions
+        cancelButton.target = self
+        cancelButton.action = #selector(handleFillInCancel(_:))
+
+        // Store panel reference for cancel handler
+        objc_setAssociatedObject(cancelButton, &ExpansionEngine.cancelButtonPanelKey, panel, .OBJC_ASSOCIATION_RETAIN)
+
+        insertButton.target = self
+        insertButton.action = #selector(handleFillInInsert(_:))
+
+        // Create a wrapper to store the data
+        let wrapper = FillInDataWrapper(textFields: textFields, panel: panel, xp: xp)
+        objc_setAssociatedObject(insertButton, &ExpansionEngine.insertButtonWrapperKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
+
+        // Show panel without activating
+        panel.orderFront(nil)
+
+        // Focus first text field
+        if let firstField = textFields.first?.field {
+            panel.makeFirstResponder(firstField)
+        }
+
+        print("   Showing floating panel...")
+    }
+
+    @objc private func handleFillInCancel(_ sender: NSButton) {
+        guard let panel = objc_getAssociatedObject(sender, &ExpansionEngine.cancelButtonPanelKey) as? NSPanel else {
+            print("   ❌ Failed to get panel")
+            return
+        }
+
+        print("   User cancelled")
+        panel.close()
+        self.isEnabled = true
+    }
+
+    @objc private func handleFillInInsert(_ sender: NSButton) {
+        guard let wrapper = objc_getAssociatedObject(sender, &ExpansionEngine.insertButtonWrapperKey) as? FillInDataWrapper else {
+            print("   ❌ Failed to get wrapper")
+            return
+        }
+
+        // Collect values
+        var fillInValues: [String: String] = [:]
+        for (label, field) in wrapper.textFields {
+            fillInValues[label] = field.stringValue
+        }
+
+        print("   Collected values: \(fillInValues)")
+
+        // Close panel
+        wrapper.panel.close()
+
+        // Delete the keyword and perform expansion with fill-in values
+        self.deleteText(count: wrapper.xp.keyword.count)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.pasteExpansion(wrapper.xp, fillInValues: fillInValues)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.isEnabled = true
+
+                let leveledUp = XPManager.shared.addExperienceForExpansion()
+                if leveledUp {
+                    print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                }
+            }
+        }
+    }
+
+    private func parseTextSegments(_ text: String) -> [TextSegment] {
+        var segments: [TextSegment] = []
+
+        let pattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return [TextSegment(text: text)]
+        }
+
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+
+        var currentIndex = 0
+
+        for match in matches {
+            // Add text before this match
+            if match.range.location > currentIndex {
+                let beforeRange = NSRange(location: currentIndex, length: match.range.location - currentIndex)
+                let beforeText = nsText.substring(with: beforeRange)
+                if !beforeText.isEmpty {
+                    segments.append(TextSegment(text: beforeText))
+                }
+            }
+
+            // Add the fill-in field
+            let labelRange = match.range(at: 1)
+            let defaultRange = match.range(at: 2)
+            let label = nsText.substring(with: labelRange)
+            let defaultValue = nsText.substring(with: defaultRange)
+            segments.append(TextSegment(label: label, defaultValue: defaultValue))
+
+            currentIndex = match.range.location + match.range.length
+        }
+
+        // Add remaining text after last match
+        if currentIndex < nsText.length {
+            let remainingRange = NSRange(location: currentIndex, length: nsText.length - currentIndex)
+            let remainingTextStr = nsText.substring(with: remainingRange)
+            if !remainingTextStr.isEmpty {
+                segments.append(TextSegment(text: remainingTextStr))
+            }
+        }
+
+        return segments
+    }
+
+    struct TextSegment {
+        let text: String
+        let isField: Bool
+        let label: String
+        let defaultValue: String
+
+        init(text: String) {
+            self.text = text
+            self.isField = false
+            self.label = ""
+            self.defaultValue = ""
+        }
+
+        init(label: String, defaultValue: String) {
+            self.text = ""
+            self.isField = true
+            self.label = label
+            self.defaultValue = defaultValue
+        }
     }
 }

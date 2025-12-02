@@ -405,6 +405,17 @@ struct PreviewWithPills: View {
         var remainingText = text
 
         while !remainingText.isEmpty {
+            // Check if text starts with a fill-in token (pattern: {{fillin_single|label|defaultValue}})
+            if remainingText.hasPrefix("{{fillin_single|") {
+                if let endRange = remainingText.range(of: "}}") {
+                    let tokenLength = remainingText.distance(from: remainingText.startIndex, to: endRange.upperBound)
+                    let fullToken = String(remainingText.prefix(tokenLength))
+                    result.append(TextComponent(text: fullToken, displayText: "single fill", isPlaceholder: true))
+                    remainingText.removeFirst(tokenLength)
+                    continue
+                }
+            }
+
             // Check if text starts with a placeholder token
             var foundToken = false
             for token in PlaceholderToken.allCases {
@@ -419,6 +430,14 @@ struct PreviewWithPills: View {
             if !foundToken {
                 // Find the next placeholder or take rest of string
                 var nextTokenIndex = remainingText.count
+
+                // Check for fill-in token
+                if let range = remainingText.range(of: "{{fillin_single|") {
+                    let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
+                    nextTokenIndex = min(nextTokenIndex, index)
+                }
+
+                // Check for placeholder tokens
                 for token in PlaceholderToken.allCases {
                     if let range = remainingText.range(of: token.storageText) {
                         let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
