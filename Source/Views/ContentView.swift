@@ -416,6 +416,28 @@ struct PreviewWithPills: View {
                 }
             }
 
+            // Check if text starts with a multi-line fill-in token (pattern: {{fillin_multi|label|defaultValue}})
+            if remainingText.hasPrefix("{{fillin_multi|") {
+                if let endRange = remainingText.range(of: "}}") {
+                    let tokenLength = remainingText.distance(from: remainingText.startIndex, to: endRange.upperBound)
+                    let fullToken = String(remainingText.prefix(tokenLength))
+                    result.append(TextComponent(text: fullToken, displayText: "multi fill", isPlaceholder: true))
+                    remainingText.removeFirst(tokenLength)
+                    continue
+                }
+            }
+
+            // Check if text starts with a select fill-in token (pattern: {{fillin_select|label|option1,option2|defaultIndex}})
+            if remainingText.hasPrefix("{{fillin_select|") {
+                if let endRange = remainingText.range(of: "}}") {
+                    let tokenLength = remainingText.distance(from: remainingText.startIndex, to: endRange.upperBound)
+                    let fullToken = String(remainingText.prefix(tokenLength))
+                    result.append(TextComponent(text: fullToken, displayText: "select fill", isPlaceholder: true))
+                    remainingText.removeFirst(tokenLength)
+                    continue
+                }
+            }
+
             // Check if text starts with a placeholder token
             var foundToken = false
             for token in PlaceholderToken.allCases {
@@ -431,8 +453,20 @@ struct PreviewWithPills: View {
                 // Find the next placeholder or take rest of string
                 var nextTokenIndex = remainingText.count
 
-                // Check for fill-in token
+                // Check for single fill-in token
                 if let range = remainingText.range(of: "{{fillin_single|") {
+                    let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
+                    nextTokenIndex = min(nextTokenIndex, index)
+                }
+
+                // Check for multi fill-in token
+                if let range = remainingText.range(of: "{{fillin_multi|") {
+                    let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
+                    nextTokenIndex = min(nextTokenIndex, index)
+                }
+
+                // Check for select fill-in token
+                if let range = remainingText.range(of: "{{fillin_select|") {
                     let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
                     nextTokenIndex = min(nextTokenIndex, index)
                 }

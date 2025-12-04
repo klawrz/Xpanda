@@ -15,6 +15,7 @@ class ExpansionEngine {
     // Associated object keys for button handlers
     private static var cancelButtonPanelKey: UInt8 = 0
     private static var insertButtonWrapperKey: UInt8 = 0
+    private static var previewUpdateKey: UInt8 = 0
 
     func start() {
         // Check for accessibility permissions (will prompt automatically if needed)
@@ -437,9 +438,53 @@ class ExpansionEngine {
             result = result.replacingOccurrences(of: PlaceholderToken.clipboard.storageText, with: clipboardContent)
         }
 
-        // Replace fill-in fields (pattern: {{fillin_single|label|defaultValue}})
-        let pattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+        // Replace fill-in fields (pattern: {{fillin_single|label|defaultValue}} and {{fillin_multi|label|defaultValue}})
+        let singlePattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: singlePattern, options: []) {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+
+            // Replace in reverse order to maintain correct indices
+            for match in matches.reversed() {
+                let labelRange = match.range(at: 1)
+                let label = nsText.substring(with: labelRange)
+                let replacement = fillInValues[label] ?? ""
+
+                // Adjust cursor offset if replacement is before cursor
+                if let offset = cursorOffset, match.range.location < offset {
+                    let lengthDiff = replacement.count - match.range.length
+                    cursorOffset = offset + lengthDiff
+                }
+
+                result = (result as NSString).replacingCharacters(in: match.range, with: replacement)
+            }
+        }
+
+        // Replace multi-line fill-in fields (pattern: {{fillin_multi|label|defaultValue}})
+        let multiPattern = "\\{\\{fillin_multi\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: multiPattern, options: []) {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+
+            // Replace in reverse order to maintain correct indices
+            for match in matches.reversed() {
+                let labelRange = match.range(at: 1)
+                let label = nsText.substring(with: labelRange)
+                let replacement = fillInValues[label] ?? ""
+
+                // Adjust cursor offset if replacement is before cursor
+                if let offset = cursorOffset, match.range.location < offset {
+                    let lengthDiff = replacement.count - match.range.length
+                    cursorOffset = offset + lengthDiff
+                }
+
+                result = (result as NSString).replacingCharacters(in: match.range, with: replacement)
+            }
+        }
+
+        // Replace select fill-in fields (pattern: {{fillin_select|label|option1,option2|defaultIndex}})
+        let selectPattern = "\\{\\{fillin_select\\|([^|]*)\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: selectPattern, options: []) {
             let nsText = result as NSString
             let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
 
@@ -483,10 +528,11 @@ class ExpansionEngine {
                let data = fileWrapper.regularFileContents {
 
                 // Check if it's a fill-in attachment (JSON)
-                if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: String],
-                   json["type"] == "fillin_single",
-                   let label = json["label"] {
-                    print("   ✓ Found fill-in attachment at range: \(range) with label: \(label)")
+                if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                   let type = json["type"] as? String,
+                   (type == "fillin_single" || type == "fillin_multi" || type == "fillin_select"),
+                   let label = json["label"] as? String {
+                    print("   ✓ Found \(type) attachment at range: \(range) with label: \(label)")
 
                     let replacementText = fillInValues[label] ?? ""
                     print("     → Replacing with value: \(replacementText)")
@@ -660,18 +706,24 @@ class ExpansionEngine {
     struct FillInField {
         let label: String
         let defaultValue: String
+        let isMultiLine: Bool
+        let isSelect: Bool
+        let options: [String]?
+        let defaultIndex: Int?
     }
 
     // Wrapper class to store fill-in dialog data for associated objects
     class FillInDataWrapper {
-        let textFields: [(label: String, field: NSTextField)]
+        let fields: [(label: String, control: NSView, isMultiLine: Bool)]
         let panel: NSPanel
         let xp: XP
+        let previousApp: NSRunningApplication?
 
-        init(textFields: [(label: String, field: NSTextField)], panel: NSPanel, xp: XP) {
-            self.textFields = textFields
+        init(fields: [(label: String, control: NSView, isMultiLine: Bool)], panel: NSPanel, xp: XP, previousApp: NSRunningApplication?) {
+            self.fields = fields
             self.panel = panel
             self.xp = xp
+            self.previousApp = previousApp
         }
     }
 
@@ -696,17 +748,50 @@ class ExpansionEngine {
             textToSearch = xp.expansion
         }
 
+        let nsText = textToSearch as NSString
+
         // Pattern: {{fillin_single|label|defaultValue}}
-        let pattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
-            let nsText = textToSearch as NSString
+        let singlePattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: singlePattern, options: []) {
             let matches = regex.matches(in: textToSearch, options: [], range: NSRange(location: 0, length: nsText.length))
             for match in matches {
                 let labelRange = match.range(at: 1)
                 let defaultRange = match.range(at: 2)
                 let label = nsText.substring(with: labelRange)
                 let defaultValue = nsText.substring(with: defaultRange)
-                fields.append(FillInField(label: label, defaultValue: defaultValue))
+                fields.append(FillInField(label: label, defaultValue: defaultValue, isMultiLine: false, isSelect: false, options: nil, defaultIndex: nil))
+            }
+        }
+
+        // Pattern: {{fillin_multi|label|defaultValue}}
+        let multiPattern = "\\{\\{fillin_multi\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: multiPattern, options: []) {
+            let matches = regex.matches(in: textToSearch, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches {
+                let labelRange = match.range(at: 1)
+                let defaultRange = match.range(at: 2)
+                let label = nsText.substring(with: labelRange)
+                let defaultValue = nsText.substring(with: defaultRange)
+                fields.append(FillInField(label: label, defaultValue: defaultValue, isMultiLine: true, isSelect: false, options: nil, defaultIndex: nil))
+            }
+        }
+
+        // Pattern: {{fillin_select|label|option1,option2,option3|defaultIndex}}
+        let selectPattern = "\\{\\{fillin_select\\|([^|]*)\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: selectPattern, options: []) {
+            let matches = regex.matches(in: textToSearch, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches {
+                let labelRange = match.range(at: 1)
+                let optionsRange = match.range(at: 2)
+                let defaultIndexRange = match.range(at: 3)
+                let label = nsText.substring(with: labelRange)
+                let optionsString = nsText.substring(with: optionsRange)
+                let defaultIndexString = nsText.substring(with: defaultIndexRange)
+
+                let options = optionsString.components(separatedBy: ",")
+                let defaultIndex = Int(defaultIndexString) ?? 0
+
+                fields.append(FillInField(label: label, defaultValue: "", isMultiLine: false, isSelect: true, options: options, defaultIndex: defaultIndex))
             }
         }
 
@@ -731,17 +816,14 @@ class ExpansionEngine {
 
         print("   Expansion text: \(expansionText)")
 
-        // Create a floating panel that doesn't steal focus
+        // Create a panel
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
-            styleMask: [.titled, .closable, .nonactivatingPanel, .resizable],
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         panel.title = "Fill in values"
-        panel.level = .floating
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
         panel.minSize = NSSize(width: 400, height: 300)
         panel.center()
 
@@ -791,8 +873,8 @@ class ExpansionEngine {
         containerView.addSubview(fieldsLabel)
         yOffset += 24
 
-        // Create text fields for each fill-in
-        var textFields: [(label: String, field: NSTextField)] = []
+        // Create text fields/text views for each fill-in
+        var inputControls: [(label: String, control: NSView, isMultiLine: Bool)] = []
 
         for field in fields {
             // Add field label
@@ -803,34 +885,98 @@ class ExpansionEngine {
             containerView.addSubview(label)
             yOffset += 20
 
-            // Add text field
-            let textField = NSTextField(string: field.defaultValue)
-            textField.placeholderString = field.label
-            textField.font = NSFont.systemFont(ofSize: 13)
-            textField.frame = NSRect(x: 16, y: yOffset, width: 468, height: 24)
-            containerView.addSubview(textField)
-            textFields.append((label: field.label, field: textField))
-            yOffset += 32
+            if field.isSelect {
+                // Add popup button for select field
+                let popupButton = NSPopUpButton(frame: NSRect(x: 16, y: yOffset, width: 468, height: 26), pullsDown: false)
+                popupButton.font = NSFont.systemFont(ofSize: 13)
+
+                // Add options to popup
+                if let options = field.options {
+                    for option in options {
+                        popupButton.addItem(withTitle: option)
+                    }
+                    // Select the default option
+                    if let defaultIndex = field.defaultIndex, defaultIndex < options.count {
+                        popupButton.selectItem(at: defaultIndex)
+                    }
+                }
+
+                containerView.addSubview(popupButton)
+                inputControls.append((label: field.label, control: popupButton, isMultiLine: false))
+                yOffset += 34
+            } else if field.isMultiLine {
+                // Add multi-line text view (scrollable)
+                let scrollView = NSScrollView(frame: NSRect(x: 16, y: yOffset, width: 468, height: 80))
+                scrollView.hasVerticalScroller = true
+                scrollView.autohidesScrollers = true
+                scrollView.borderType = .bezelBorder
+                scrollView.autoresizingMask = [.width]
+
+                let textView = NSTextView(frame: scrollView.bounds)
+                textView.isEditable = true
+                textView.isSelectable = true
+                textView.font = NSFont.systemFont(ofSize: 13)
+                textView.textContainerInset = NSSize(width: 4, height: 4)
+                textView.autoresizingMask = [.width]
+                textView.string = field.defaultValue
+
+                scrollView.documentView = textView
+                containerView.addSubview(scrollView)
+                inputControls.append((label: field.label, control: textView, isMultiLine: true))
+                yOffset += 88
+            } else {
+                // Add single-line text field
+                let textField = NSTextField(string: field.defaultValue)
+                textField.placeholderString = field.label
+                textField.font = NSFont.systemFont(ofSize: 13)
+                textField.frame = NSRect(x: 16, y: yOffset, width: 468, height: 24)
+                containerView.addSubview(textField)
+                inputControls.append((label: field.label, control: textField, isMultiLine: false))
+                yOffset += 32
+            }
         }
 
         yOffset += 8
 
-        print("   Created \(textFields.count) text fields")
+        print("   Created \(inputControls.count) input controls (\(inputControls.filter { $0.isMultiLine }.count) multi-line)")
 
         // Function to update preview
         let updatePreview = {
             var previewText = expansionText
 
             // Replace each fill-in pattern with its current value
-            for (label, field) in textFields {
-                let pattern = "\\{\\{fillin_single\\|\(NSRegularExpression.escapedPattern(for: label))\\|[^}]*\\}\\}"
+            for (label, control, isMultiLine) in inputControls {
+                // Determine the pattern type
+                let patternType: String
+                if control is NSPopUpButton {
+                    patternType = "fillin_select"
+                } else if isMultiLine {
+                    patternType = "fillin_multi"
+                } else {
+                    patternType = "fillin_single"
+                }
+
+                let pattern = "\\{\\{\(patternType)\\|\(NSRegularExpression.escapedPattern(for: label))\\|[^}]*\\}\\}"
                 if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
                     let range = NSRange(location: 0, length: (previewText as NSString).length)
+
+                    // Get the value based on control type
+                    let value: String
+                    if let textField = control as? NSTextField {
+                        value = textField.stringValue
+                    } else if let textView = control as? NSTextView {
+                        value = textView.string
+                    } else if let popupButton = control as? NSPopUpButton {
+                        value = popupButton.titleOfSelectedItem ?? ""
+                    } else {
+                        value = ""
+                    }
+
                     previewText = regex.stringByReplacingMatches(
                         in: previewText,
                         options: [],
                         range: range,
-                        withTemplate: field.stringValue
+                        withTemplate: value
                     )
                 }
             }
@@ -841,18 +987,36 @@ class ExpansionEngine {
         // Initial preview update
         updatePreview()
 
-        // Add observers to text fields to update preview on change
-        for (_, field) in textFields {
-            field.target = nil
-            field.action = #selector(NSTextField.selectText(_:))
+        // Add observers to controls to update preview on change
+        for (_, control, _) in inputControls {
+            if let textField = control as? NSTextField {
+                textField.target = nil
+                textField.action = #selector(NSTextField.selectText(_:))
 
-            // Use NotificationCenter to observe text changes
-            NotificationCenter.default.addObserver(
-                forName: NSControl.textDidChangeNotification,
-                object: field,
-                queue: .main
-            ) { _ in
-                updatePreview()
+                // Use NotificationCenter to observe text changes
+                NotificationCenter.default.addObserver(
+                    forName: NSControl.textDidChangeNotification,
+                    object: textField,
+                    queue: .main
+                ) { _ in
+                    updatePreview()
+                }
+            } else if let textView = control as? NSTextView {
+                // Use NotificationCenter to observe text changes
+                NotificationCenter.default.addObserver(
+                    forName: NSText.didChangeNotification,
+                    object: textView,
+                    queue: .main
+                ) { _ in
+                    updatePreview()
+                }
+            } else if let popupButton = control as? NSPopUpButton {
+                // Add action to popup button to update preview on selection change
+                popupButton.target = self
+                popupButton.action = #selector(popupButtonChanged(_:))
+
+                // Store the update closure in associated object
+                objc_setAssociatedObject(popupButton, &ExpansionEngine.previewUpdateKey, updatePreview, .OBJC_ASSOCIATION_RETAIN)
             }
         }
 
@@ -892,19 +1056,42 @@ class ExpansionEngine {
         insertButton.target = self
         insertButton.action = #selector(handleFillInInsert(_:))
 
-        // Create a wrapper to store the data
-        let wrapper = FillInDataWrapper(textFields: textFields, panel: panel, xp: xp)
+        // Make the insert button the default button (blue and responds to Return)
+        panel.defaultButtonCell = insertButton.cell as? NSButtonCell
+
+        // Capture the currently active application (the text editor)
+        let previousApp = NSWorkspace.shared.frontmostApplication
+
+        // Create a wrapper to store the data including the previous app
+        let wrapper = FillInDataWrapper(fields: inputControls, panel: panel, xp: xp, previousApp: previousApp)
         objc_setAssociatedObject(insertButton, &ExpansionEngine.insertButtonWrapperKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
 
-        // Show panel without activating
-        panel.orderFront(nil)
+        // Activate Xpanda and show the panel first
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
 
-        // Focus first text field
-        if let firstField = textFields.first?.field {
-            panel.makeFirstResponder(firstField)
+        // Then hide all main windows (leaving only the panel visible)
+        DispatchQueue.main.async {
+            for window in NSApp.windows {
+                if window != panel && window.isVisible {
+                    window.orderOut(nil)
+                }
+            }
         }
 
-        print("   Showing floating panel...")
+        // Focus first control
+        if let firstControl = inputControls.first?.control {
+            panel.makeFirstResponder(firstControl)
+        }
+
+        print("   Showing fill-in dialog...")
+    }
+
+    @objc private func popupButtonChanged(_ sender: NSPopUpButton) {
+        // Get the update closure from associated object
+        if let updateClosure = objc_getAssociatedObject(sender, &ExpansionEngine.previewUpdateKey) as? () -> Void {
+            updateClosure()
+        }
     }
 
     @objc private func handleFillInCancel(_ sender: NSButton) {
@@ -915,6 +1102,14 @@ class ExpansionEngine {
 
         print("   User cancelled")
         panel.close()
+
+        // Restore main windows
+        for window in NSApp.windows {
+            if window != panel && window.canBecomeKey {
+                window.orderFront(nil)
+            }
+        }
+
         self.isEnabled = true
     }
 
@@ -924,10 +1119,16 @@ class ExpansionEngine {
             return
         }
 
-        // Collect values
+        // Collect values from controls
         var fillInValues: [String: String] = [:]
-        for (label, field) in wrapper.textFields {
-            fillInValues[label] = field.stringValue
+        for (label, control, _) in wrapper.fields {
+            if let textField = control as? NSTextField {
+                fillInValues[label] = textField.stringValue
+            } else if let textView = control as? NSTextView {
+                fillInValues[label] = textView.string
+            } else if let popupButton = control as? NSPopUpButton {
+                fillInValues[label] = popupButton.titleOfSelectedItem ?? ""
+            }
         }
 
         print("   Collected values: \(fillInValues)")
@@ -935,18 +1136,33 @@ class ExpansionEngine {
         // Close panel
         wrapper.panel.close()
 
-        // Delete the keyword and perform expansion with fill-in values
-        self.deleteText(count: wrapper.xp.keyword.count)
+        // Restore main windows
+        for window in NSApp.windows {
+            if window != wrapper.panel && window.canBecomeKey {
+                window.orderFront(nil)
+            }
+        }
 
+        // Switch back to the previous application (text editor) before doing expansion
+        if let previousApp = wrapper.previousApp {
+            previousApp.activate(options: .activateIgnoringOtherApps)
+        }
+
+        // Wait for app switch to complete
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.pasteExpansion(wrapper.xp, fillInValues: fillInValues)
+            // Delete the keyword and perform expansion with fill-in values
+            self.deleteText(count: wrapper.xp.keyword.count)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.isEnabled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.pasteExpansion(wrapper.xp, fillInValues: fillInValues)
 
-                let leveledUp = XPManager.shared.addExperienceForExpansion()
-                if leveledUp {
-                    print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self.isEnabled = true
+
+                    let leveledUp = XPManager.shared.addExperienceForExpansion()
+                    if leveledUp {
+                        print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                    }
                 }
             }
         }

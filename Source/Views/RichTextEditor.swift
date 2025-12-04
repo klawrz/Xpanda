@@ -6,6 +6,10 @@ struct FillInClickData: Equatable {
     let index: Int
     let label: String
     let defaultValue: String
+    let isMultiLine: Bool
+    let isSelect: Bool
+    let options: [String]?
+    let defaultIndex: Int?
 }
 
 struct RichTextEditorWithToolbar: View {
@@ -58,7 +62,7 @@ class XpandaTextView: NSTextView {
     }
 
     // Callback for fill-in attachment clicks
-    var onFillInClicked: ((Int, String, String) -> Void)?
+    var onFillInClicked: ((Int, String, String, Bool, Bool, [String]?, Int?) -> Void)?
 
     // Override to handle keyboard shortcuts
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -234,24 +238,15 @@ class XpandaTextView: NSTextView {
     // Override to disable link clicking at the mouse event level
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let charIndex = characterIndexForInsertion(at: point)
 
-        // Check if clicking on an attachment (fill-in pill)
-        if charIndex < textStorage?.length ?? 0,
-           let storage = textStorage,
-           let attachment = storage.attribute(.attachment, at: charIndex, effectiveRange: nil) as? NSTextAttachment,
-           let fileWrapper = attachment.fileWrapper,
-           let data = fileWrapper.regularFileContents,
-           let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: String],
-           json["type"] == "fillin_single",
-           let label = json["label"],
-           let defaultValue = json["default"] {
-            // Handle fill-in click
-            onFillInClicked?(charIndex, label, defaultValue)
+        // Check if clicking on a fill-in pill using the same logic as cursor detection
+        if let (charIndex, label, defaultValue, isMultiLine, isSelect, options, defaultIndex) = getFillInPillAtPoint(point) {
+            onFillInClicked?(charIndex, label, defaultValue, isMultiLine, isSelect, options, defaultIndex)
             return
         }
 
         // Check if clicking on a link
+        let charIndex = characterIndexForInsertion(at: point)
         if charIndex < textStorage?.length ?? 0,
            let storage = textStorage,
            storage.attribute(.link, at: charIndex, effectiveRange: nil) != nil {
@@ -266,6 +261,65 @@ class XpandaTextView: NSTextView {
 
         // Normal click, not on a link
         super.mouseDown(with: event)
+    }
+
+    // Helper to get fill-in pill data at a point
+    private func getFillInPillAtPoint(_ point: NSPoint) -> (charIndex: Int, label: String, defaultValue: String, isMultiLine: Bool, isSelect: Bool, options: [String]?, defaultIndex: Int?)? {
+        guard let layoutManager = layoutManager,
+              let textContainer = textContainer,
+              let storage = textStorage else {
+            return nil
+        }
+
+        // Convert point to text container coordinates
+        let containerPoint = NSPoint(
+            x: point.x - textContainerInset.width,
+            y: point.y - textContainerInset.height
+        )
+
+        // Get the glyph index at this point
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer, fractionOfDistanceThroughGlyph: nil)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+
+        // Get the character index for this glyph
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length else { return nil }
+
+        // Check if this character has a fill-in attachment
+        if let attachment = storage.attribute(.attachment, at: charIndex, effectiveRange: nil) as? NSTextAttachment,
+           let fileWrapper = attachment.fileWrapper,
+           let data = fileWrapper.regularFileContents,
+           let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+           let type = json["type"] as? String,
+           (type == "fillin_single" || type == "fillin_multi" || type == "fillin_select"),
+           let label = json["label"] as? String {
+
+            // Get the bounding rect for this glyph
+            let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+
+            // Adjust for text container insets
+            let adjustedRect = NSRect(
+                x: glyphRect.origin.x + textContainerInset.width,
+                y: glyphRect.origin.y + textContainerInset.height,
+                width: glyphRect.width,
+                height: glyphRect.height
+            )
+
+            // Check if point is within the glyph bounds
+            if adjustedRect.contains(point) {
+                if type == "fillin_select" {
+                    let options = json["options"] as? [String] ?? []
+                    let defaultIndex = json["defaultIndex"] as? Int ?? 0
+                    return (charIndex, label, "", false, true, options, defaultIndex)
+                } else {
+                    let defaultValue = json["default"] as? String ?? ""
+                    let isMultiLine = (type == "fillin_multi")
+                    return (charIndex, label, defaultValue, isMultiLine, false, nil, nil)
+                }
+            }
+        }
+
+        return nil
     }
 }
 
@@ -334,8 +388,8 @@ struct RichTextEditor: NSViewRepresentable {
 
         // Set up fill-in click handler
         let coordinator = context.coordinator
-        textView.onFillInClicked = { charIndex, label, defaultValue in
-            coordinator.handleFillInClick(at: charIndex, label: label, defaultValue: defaultValue)
+        textView.onFillInClicked = { charIndex, label, defaultValue, isMultiLine, isSelect, options, defaultIndex in
+            coordinator.handleFillInClick(at: charIndex, label: label, defaultValue: defaultValue, isMultiLine: isMultiLine, isSelect: isSelect, options: options, defaultIndex: defaultIndex)
         }
 
         // Store reference to textView
@@ -347,7 +401,7 @@ struct RichTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
+        guard let textView = scrollView.documentView as? XpandaTextView else { return }
 
         // Only update if content is different to avoid cursor jumping
         // Compare by string content rather than the entire attributed string
@@ -397,8 +451,8 @@ struct RichTextEditor: NSViewRepresentable {
         }
 
         // Handle fill-in pill clicks
-        func handleFillInClick(at index: Int, label: String, defaultValue: String) {
-            parent.fillInClickedData = FillInClickData(index: index, label: label, defaultValue: defaultValue)
+        func handleFillInClick(at index: Int, label: String, defaultValue: String, isMultiLine: Bool, isSelect: Bool, options: [String]?, defaultIndex: Int?) {
+            parent.fillInClickedData = FillInClickData(index: index, label: label, defaultValue: defaultValue, isMultiLine: isMultiLine, isSelect: isSelect, options: options, defaultIndex: defaultIndex)
         }
 
         // Fix typing attributes when selection changes (e.g., after moving cursor past an attachment)
@@ -458,6 +512,15 @@ struct RichTextToolbar: View {
     @State private var fillInLabel = ""
     @State private var fillInDefault = ""
     @State private var editingFillInRange: NSRange? = nil
+    @State private var showingMultiLineFillInDialog = false
+    @State private var multiLineFillInLabel = ""
+    @State private var multiLineFillInDefault = ""
+    @State private var editingMultiLineFillInRange: NSRange? = nil
+    @State private var showingSelectFillInDialog = false
+    @State private var selectFillInLabel = ""
+    @State private var selectFillInOptions: [String] = []
+    @State private var selectFillInDefaultIndex = 0
+    @State private var editingSelectFillInRange: NSRange? = nil
 
     var body: some View {
         HStack(spacing: 4) {
@@ -645,15 +708,26 @@ struct RichTextToolbar: View {
             // Find the fill-in attachment at this position
             let charIndex = data.index
             if charIndex < storage.length {
-                // Set the edit range
-                editingFillInRange = NSRange(location: charIndex, length: 1)
-
-                // Pre-fill the form with existing data
-                fillInLabel = data.label
-                fillInDefault = data.defaultValue
-
-                // Show the dialog
-                showingFillInDialog = true
+                if data.isSelect {
+                    // Select fill-in
+                    editingSelectFillInRange = NSRange(location: charIndex, length: 1)
+                    selectFillInLabel = data.label
+                    selectFillInOptions = data.options ?? [""]
+                    selectFillInDefaultIndex = data.defaultIndex ?? 0
+                    showingSelectFillInDialog = true
+                } else if data.isMultiLine {
+                    // Multi-line fill-in
+                    editingMultiLineFillInRange = NSRange(location: charIndex, length: 1)
+                    multiLineFillInLabel = data.label
+                    multiLineFillInDefault = data.defaultValue
+                    showingMultiLineFillInDialog = true
+                } else {
+                    // Single-line fill-in
+                    editingFillInRange = NSRange(location: charIndex, length: 1)
+                    fillInLabel = data.label
+                    fillInDefault = data.defaultValue
+                    showingFillInDialog = true
+                }
             }
 
             // Reset the trigger
@@ -682,6 +756,33 @@ struct RichTextToolbar: View {
                 },
                 onCancel: {
                     showingFillInDialog = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingMultiLineFillInDialog) {
+            MultiLineFillInDialog(
+                label: $multiLineFillInLabel,
+                defaultValue: $multiLineFillInDefault,
+                onInsert: {
+                    insertMultiLineFillInWithDetails()
+                    showingMultiLineFillInDialog = false
+                },
+                onCancel: {
+                    showingMultiLineFillInDialog = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingSelectFillInDialog) {
+            SelectFillInDialog(
+                label: $selectFillInLabel,
+                options: $selectFillInOptions,
+                defaultIndex: $selectFillInDefaultIndex,
+                onInsert: {
+                    insertSelectFillInWithDetails()
+                    showingSelectFillInDialog = false
+                },
+                onCancel: {
+                    showingSelectFillInDialog = false
                 }
             )
         }
@@ -935,11 +1036,18 @@ struct RichTextToolbar: View {
             editingFillInRange = nil
             showingFillInDialog = true
         case .multi:
-            // TODO: Implement multi fill-in
-            print("Multi fill-in clicked")
+            // Clear form and show dialog
+            multiLineFillInLabel = ""
+            multiLineFillInDefault = ""
+            editingMultiLineFillInRange = nil
+            showingMultiLineFillInDialog = true
         case .select:
-            // TODO: Implement select fill-in
-            print("Select fill-in clicked")
+            // Clear form and show dialog
+            selectFillInLabel = ""
+            selectFillInOptions = [""]
+            selectFillInDefaultIndex = 0
+            editingSelectFillInRange = nil
+            showingSelectFillInDialog = true
         }
     }
 
@@ -1041,6 +1149,87 @@ struct RichTextToolbar: View {
 
         // Clear editing range
         editingFillInRange = nil
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    private func insertMultiLineFillInWithDetails() {
+        guard let textView = textViewHolder.textView,
+              !multiLineFillInLabel.isEmpty else { return }
+
+        // Use the editing range if we're editing an existing fill-in, otherwise use selection
+        let range = editingMultiLineFillInRange ?? textView.selectedRange()
+
+        // Create multi-line fill-in pill
+        let pillString = PlaceholderPillRenderer.createMultiLineFillInDisplayString(
+            label: multiLineFillInLabel,
+            defaultValue: multiLineFillInDefault
+        )
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        // Clear editing range
+        editingMultiLineFillInRange = nil
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    private func insertSelectFillInWithDetails() {
+        guard let textView = textViewHolder.textView,
+              !selectFillInLabel.isEmpty,
+              !selectFillInOptions.allSatisfy({ $0.isEmpty }) else { return }
+
+        // Filter out empty options
+        let validOptions = selectFillInOptions.filter { !$0.isEmpty }
+        guard !validOptions.isEmpty else { return }
+
+        // Adjust default index if needed
+        let safeDefaultIndex = min(selectFillInDefaultIndex, validOptions.count - 1)
+
+        // Use the editing range if we're editing an existing fill-in, otherwise use selection
+        let range = editingSelectFillInRange ?? textView.selectedRange()
+
+        // Create select fill-in pill
+        let pillString = PlaceholderPillRenderer.createSelectFillInDisplayString(
+            label: selectFillInLabel,
+            options: validOptions,
+            defaultIndex: safeDefaultIndex
+        )
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        // Clear editing range
+        editingSelectFillInRange = nil
         textView.window?.makeFirstResponder(textView)
     }
 
@@ -1307,6 +1496,145 @@ struct FillInInputDialog: View {
         }
         .padding(20)
         .frame(width: 400)
+    }
+}
+
+struct MultiLineFillInDialog: View {
+    @Binding var label: String
+    @Binding var defaultValue: String
+    let onInsert: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Multi-Line Fill-In")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Label")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("e.g., Message", text: $label)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Default Value")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextEditor(text: $defaultValue)
+                    .font(.system(size: 13))
+                    .frame(height: 100)
+                    .border(Color.secondary.opacity(0.2))
+            }
+
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Insert") {
+                    onInsert()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(label.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 400)
+    }
+}
+
+struct SelectFillInDialog: View {
+    @Binding var label: String
+    @Binding var options: [String]
+    @Binding var defaultIndex: Int
+    let onInsert: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Select Fill-In")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Label")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("e.g., Priority", text: $label)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Options")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                ForEach(options.indices, id: \.self) { index in
+                    HStack {
+                        TextField("Option \(index + 1)", text: $options[index])
+                            .textFieldStyle(.roundedBorder)
+
+                        // Radio button for default selection
+                        Button(action: {
+                            defaultIndex = index
+                        }) {
+                            Image(systemName: defaultIndex == index ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(defaultIndex == index ? .blue : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Set as default")
+
+                        // Remove button
+                        if options.count > 1 {
+                            Button(action: {
+                                if defaultIndex >= options.count - 1 && defaultIndex > 0 {
+                                    defaultIndex -= 1
+                                }
+                                options.remove(at: index)
+                            }) {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Button(action: {
+                    options.append("")
+                }) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add Option")
+                    }
+                    .font(.caption)
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Insert") {
+                    onInsert()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(label.isEmpty || options.allSatisfy { $0.isEmpty })
+            }
+        }
+        .padding(20)
+        .frame(width: 450)
     }
 }
 

@@ -178,6 +178,131 @@ class FillInPillAttachmentCell: NSTextAttachmentCell {
     }
 }
 
+class MultiLineFillInPillAttachmentCell: NSTextAttachmentCell {
+    let label: String
+    let defaultValue: String
+
+    init(label: String, defaultValue: String) {
+        self.label = label
+        self.defaultValue = defaultValue
+        super.init()
+    }
+
+    required init(coder: NSCoder) {
+        self.label = ""
+        self.defaultValue = ""
+        super.init(coder: coder)
+    }
+
+    override func cellSize() -> NSSize {
+        // Show "multi fill" as the display text
+        let text = "multi fill"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemGray
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        return NSSize(width: textSize.width + 8, height: 18)
+    }
+
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        // Draw rounded rectangle pill (same style as placeholder pills)
+        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 3, yRadius: 3)
+
+        // Fill with light grey background
+        NSColor.systemGray.withAlphaComponent(0.2).setFill()
+        path.fill()
+
+        // Draw grey border
+        NSColor.systemGray.withAlphaComponent(0.3).setStroke()
+        path.lineWidth = 1.0
+        path.stroke()
+
+        // Draw label text
+        let text = "multi fill"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemGray
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        let textRect = NSRect(
+            x: cellFrame.origin.x + (cellFrame.width - textSize.width) / 2,
+            y: cellFrame.origin.y + (cellFrame.height - textSize.height) / 2 + 1,
+            width: textSize.width,
+            height: textSize.height
+        )
+        text.draw(in: textRect, withAttributes: attrs)
+    }
+
+    override func cellBaselineOffset() -> NSPoint {
+        return NSPoint(x: 0, y: -3)
+    }
+}
+
+class SelectFillInPillAttachmentCell: NSTextAttachmentCell {
+    let label: String
+    let options: [String]
+    let defaultIndex: Int
+
+    init(label: String, options: [String], defaultIndex: Int) {
+        self.label = label
+        self.options = options
+        self.defaultIndex = defaultIndex
+        super.init()
+    }
+
+    required init(coder: NSCoder) {
+        self.label = ""
+        self.options = []
+        self.defaultIndex = 0
+        super.init(coder: coder)
+    }
+
+    override func cellSize() -> NSSize {
+        // Show "select fill" as the display text
+        let text = "select fill"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemPurple
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        return NSSize(width: textSize.width + 8, height: 18)
+    }
+
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        // Draw rounded rectangle pill
+        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 3, yRadius: 3)
+
+        // Fill with light purple background
+        NSColor.systemPurple.withAlphaComponent(0.2).setFill()
+        path.fill()
+
+        // Draw purple border
+        NSColor.systemPurple.withAlphaComponent(0.3).setStroke()
+        path.lineWidth = 1.0
+        path.stroke()
+
+        // Draw label text
+        let text = "select fill"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemPurple
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        let textRect = NSRect(
+            x: cellFrame.origin.x + (cellFrame.width - textSize.width) / 2,
+            y: cellFrame.origin.y + (cellFrame.height - textSize.height) / 2 + 1,
+            width: textSize.width,
+            height: textSize.height
+        )
+        text.draw(in: textRect, withAttributes: attrs)
+    }
+
+    override func cellBaselineOffset() -> NSPoint {
+        return NSPoint(x: 0, y: -3)
+    }
+}
+
 // Helper class to render placeholder pills
 class PlaceholderPillRenderer {
     // Convert storage text to display attributed string with pill styling
@@ -218,6 +343,51 @@ class PlaceholderPillRenderer {
 
         return NSAttributedString(attachment: attachment)
     }
+
+    static func createMultiLineFillInDisplayString(label: String, defaultValue: String) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+
+        // Use custom cell for rendering
+        attachment.attachmentCell = MultiLineFillInPillAttachmentCell(label: label, defaultValue: defaultValue)
+
+        // Store the fill-in data as JSON in the attachment
+        let fillInData: [String: String] = [
+            "type": "fillin_multi",
+            "label": label,
+            "default": defaultValue
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: fillInData, options: []) {
+            let wrapper = FileWrapper(regularFileWithContents: jsonData)
+            wrapper.preferredFilename = "fillin_multi.json"
+            attachment.fileWrapper = wrapper
+        }
+
+        return NSAttributedString(attachment: attachment)
+    }
+
+    static func createSelectFillInDisplayString(label: String, options: [String], defaultIndex: Int) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+
+        // Use custom cell for rendering
+        attachment.attachmentCell = SelectFillInPillAttachmentCell(label: label, options: options, defaultIndex: defaultIndex)
+
+        // Store the fill-in data as JSON in the attachment
+        let fillInData: [String: Any] = [
+            "type": "fillin_select",
+            "label": label,
+            "options": options,
+            "defaultIndex": defaultIndex
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: fillInData, options: []) {
+            let wrapper = FileWrapper(regularFileWithContents: jsonData)
+            wrapper.preferredFilename = "fillin_select.json"
+            attachment.fileWrapper = wrapper
+        }
+
+        return NSAttributedString(attachment: attachment)
+    }
 }
 
 // Helper class for converting between storage and display formats
@@ -239,30 +409,73 @@ class XPHelper {
             mutableString.replaceCharacters(in: range, with: pillString)
         }
 
-        // Find and replace fill-in tokens
+        // Find and replace single-line fill-in tokens
         let nsText = mutableString.string as NSString
-        var fillInReplacements: [(range: NSRange, label: String, defaultValue: String)] = []
+        var fillInReplacements: [(range: NSRange, label: String, defaultValue: String, isMulti: Bool)] = []
 
         // Pattern: {{fillin_single|label|defaultValue}}
-        let pattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+        let singlePattern = "\\{\\{fillin_single\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: singlePattern, options: []) {
             let matches = regex.matches(in: mutableString.string, options: [], range: NSRange(location: 0, length: nsText.length))
             for match in matches.reversed() {
                 let labelRange = match.range(at: 1)
                 let defaultRange = match.range(at: 2)
                 let label = nsText.substring(with: labelRange)
                 let defaultValue = nsText.substring(with: defaultRange)
-                fillInReplacements.append((range: match.range, label: label, defaultValue: defaultValue))
+                fillInReplacements.append((range: match.range, label: label, defaultValue: defaultValue, isMulti: false))
             }
         }
 
-        // Replace fill-in tokens with pills
-        for replacement in fillInReplacements {
-            let pillString = PlaceholderPillRenderer.createFillInDisplayString(
-                label: replacement.label,
-                defaultValue: replacement.defaultValue
-            )
+        // Pattern: {{fillin_multi|label|defaultValue}}
+        let multiPattern = "\\{\\{fillin_multi\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: multiPattern, options: []) {
+            let matches = regex.matches(in: mutableString.string, options: [], range: NSRange(location: 0, length: nsText.length))
+            for match in matches.reversed() {
+                let labelRange = match.range(at: 1)
+                let defaultRange = match.range(at: 2)
+                let label = nsText.substring(with: labelRange)
+                let defaultValue = nsText.substring(with: defaultRange)
+                fillInReplacements.append((range: match.range, label: label, defaultValue: defaultValue, isMulti: true))
+            }
+        }
+
+        // Replace fill-in tokens with pills (sorted in reverse by location to maintain indices)
+        for replacement in fillInReplacements.sorted(by: { $0.range.location > $1.range.location }) {
+            let pillString = replacement.isMulti
+                ? PlaceholderPillRenderer.createMultiLineFillInDisplayString(
+                    label: replacement.label,
+                    defaultValue: replacement.defaultValue
+                  )
+                : PlaceholderPillRenderer.createFillInDisplayString(
+                    label: replacement.label,
+                    defaultValue: replacement.defaultValue
+                  )
             mutableString.replaceCharacters(in: replacement.range, with: pillString)
+        }
+
+        // Pattern: {{fillin_select|label|option1,option2,option3|defaultIndex}}
+        let selectPattern = "\\{\\{fillin_select\\|([^|]*)\\|([^|]*)\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: selectPattern, options: []) {
+            let nsText2 = mutableString.string as NSString
+            let matches = regex.matches(in: mutableString.string, options: [], range: NSRange(location: 0, length: nsText2.length))
+            for match in matches.reversed() {
+                let labelRange = match.range(at: 1)
+                let optionsRange = match.range(at: 2)
+                let defaultIndexRange = match.range(at: 3)
+                let label = nsText2.substring(with: labelRange)
+                let optionsString = nsText2.substring(with: optionsRange)
+                let defaultIndexString = nsText2.substring(with: defaultIndexRange)
+
+                let options = optionsString.components(separatedBy: ",")
+                let defaultIndex = Int(defaultIndexString) ?? 0
+
+                let pillString = PlaceholderPillRenderer.createSelectFillInDisplayString(
+                    label: label,
+                    options: options,
+                    defaultIndex: defaultIndex
+                )
+                mutableString.replaceCharacters(in: match.range, with: pillString)
+            }
         }
 
         return mutableString
@@ -282,12 +495,23 @@ class XPHelper {
                let data = fileWrapper.regularFileContents {
 
                 // Check if it's a fill-in attachment (JSON)
-                if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: String],
-                   json["type"] == "fillin_single",
-                   let label = json["label"],
-                   let defaultValue = json["default"] {
-                    // Convert to storage format: {{fillin_single|label|defaultValue}}
-                    let storageText = "{{fillin_single|\(label)|\(defaultValue)}}"
+                if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                   let type = json["type"] as? String,
+                   let label = json["label"] as? String {
+
+                    let storageText: String
+                    if type == "fillin_select" {
+                        // Convert select fill-in: {{fillin_select|label|option1,option2|defaultIndex}}
+                        let options = json["options"] as? [String] ?? []
+                        let defaultIndex = json["defaultIndex"] as? Int ?? 0
+                        let optionsString = options.joined(separator: ",")
+                        storageText = "{{\(type)|\(label)|\(optionsString)|\(defaultIndex)}}"
+                    } else if let defaultValue = json["default"] as? String {
+                        // Convert single/multi fill-in: {{fillin_single|label|defaultValue}} or {{fillin_multi|label|defaultValue}}
+                        storageText = "{{\(type)|\(label)|\(defaultValue)}}"
+                    } else {
+                        return
+                    }
                     replacements.append((range: range, text: storageText))
                 }
                 // Check if it's a placeholder token (plain text)
