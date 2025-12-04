@@ -12,20 +12,34 @@ struct FillInClickData: Equatable {
     let defaultIndex: Int?
 }
 
+struct DateClickData: Equatable {
+    let index: Int
+    let format: String
+}
+
+struct TimeClickData: Equatable {
+    let index: Int
+    let format: String
+}
+
 struct RichTextEditorWithToolbar: View {
     @Binding var attributedString: NSAttributedString
     @StateObject private var textViewHolder = RichTextViewHolder()
     @State private var linkClickedAt: Int? = nil
     @State private var fillInClickedData: FillInClickData? = nil
+    @State private var dateClickedData: DateClickData? = nil
+    @State private var timeClickedData: TimeClickData? = nil
 
     var body: some View {
         VStack(spacing: 0) {
-            RichTextToolbar(textViewHolder: textViewHolder, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData)
+            RichTextToolbar(textViewHolder: textViewHolder, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData, dateClickedData: $dateClickedData, timeClickedData: $timeClickedData)
             RichTextEditor(
                 attributedString: $attributedString,
                 textViewHolder: textViewHolder,
                 linkClickedAt: $linkClickedAt,
-                fillInClickedData: $fillInClickedData
+                fillInClickedData: $fillInClickedData,
+                dateClickedData: $dateClickedData,
+                timeClickedData: $timeClickedData
             )
                 .border(Color.secondary.opacity(0.2))
         }
@@ -63,6 +77,12 @@ class XpandaTextView: NSTextView {
 
     // Callback for fill-in attachment clicks
     var onFillInClicked: ((Int, String, String, Bool, Bool, [String]?, Int?) -> Void)?
+
+    // Callback for date attachment clicks
+    var onDateClicked: ((Int, String) -> Void)?
+
+    // Callback for time attachment clicks
+    var onTimeClicked: ((Int, String) -> Void)?
 
     // Override to handle keyboard shortcuts
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -239,6 +259,18 @@ class XpandaTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
 
+        // Check if clicking on a date pill
+        if let (charIndex, format) = getDatePillAtPoint(point) {
+            onDateClicked?(charIndex, format)
+            return
+        }
+
+        // Check if clicking on a time pill
+        if let (charIndex, format) = getTimePillAtPoint(point) {
+            onTimeClicked?(charIndex, format)
+            return
+        }
+
         // Check if clicking on a fill-in pill using the same logic as cursor detection
         if let (charIndex, label, defaultValue, isMultiLine, isSelect, options, defaultIndex) = getFillInPillAtPoint(point) {
             onFillInClicked?(charIndex, label, defaultValue, isMultiLine, isSelect, options, defaultIndex)
@@ -321,6 +353,108 @@ class XpandaTextView: NSTextView {
 
         return nil
     }
+
+    // Helper to get date pill data at a point
+    private func getDatePillAtPoint(_ point: NSPoint) -> (charIndex: Int, format: String)? {
+        guard let layoutManager = layoutManager,
+              let textContainer = textContainer,
+              let storage = textStorage else {
+            return nil
+        }
+
+        // Convert point to text container coordinates
+        let containerPoint = NSPoint(
+            x: point.x - textContainerInset.width,
+            y: point.y - textContainerInset.height
+        )
+
+        // Get the glyph index at this point
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer, fractionOfDistanceThroughGlyph: nil)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+
+        // Get the character index for this glyph
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length else { return nil }
+
+        // Check if this character has a date attachment
+        if let attachment = storage.attribute(.attachment, at: charIndex, effectiveRange: nil) as? NSTextAttachment,
+           let fileWrapper = attachment.fileWrapper,
+           let data = fileWrapper.regularFileContents,
+           let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+           let type = json["type"] as? String,
+           type == "date",
+           let format = json["format"] as? String {
+
+            // Get the bounding rect for this glyph
+            let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+
+            // Adjust for text container insets
+            let adjustedRect = NSRect(
+                x: glyphRect.origin.x + textContainerInset.width,
+                y: glyphRect.origin.y + textContainerInset.height,
+                width: glyphRect.width,
+                height: glyphRect.height
+            )
+
+            // Check if point is within the glyph bounds
+            if adjustedRect.contains(point) {
+                return (charIndex, format)
+            }
+        }
+
+        return nil
+    }
+
+    // Helper to get time pill data at a point
+    private func getTimePillAtPoint(_ point: NSPoint) -> (charIndex: Int, format: String)? {
+        guard let layoutManager = layoutManager,
+              let textContainer = textContainer,
+              let storage = textStorage else {
+            return nil
+        }
+
+        // Convert point to text container coordinates
+        let containerPoint = NSPoint(
+            x: point.x - textContainerInset.width,
+            y: point.y - textContainerInset.height
+        )
+
+        // Get the glyph index at this point
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer, fractionOfDistanceThroughGlyph: nil)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+
+        // Get the character index for this glyph
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length else { return nil }
+
+        // Check if this character has a time attachment
+        if let attachment = storage.attribute(.attachment, at: charIndex, effectiveRange: nil) as? NSTextAttachment,
+           let fileWrapper = attachment.fileWrapper,
+           let data = fileWrapper.regularFileContents,
+           let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+           let type = json["type"] as? String,
+           type == "time",
+           let format = json["format"] as? String {
+
+            // Get the bounding rect for this glyph
+            let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+
+            // Adjust for text container insets
+            let adjustedRect = NSRect(
+                x: glyphRect.origin.x + textContainerInset.width,
+                y: glyphRect.origin.y + textContainerInset.height,
+                width: glyphRect.width,
+                height: glyphRect.height
+            )
+
+            // Check if point is within the glyph bounds
+            if adjustedRect.contains(point) {
+                return (charIndex, format)
+            }
+        }
+
+        return nil
+    }
 }
 
 struct RichTextEditor: NSViewRepresentable {
@@ -328,6 +462,8 @@ struct RichTextEditor: NSViewRepresentable {
     @ObservedObject var textViewHolder: RichTextViewHolder
     @Binding var linkClickedAt: Int?
     @Binding var fillInClickedData: FillInClickData?
+    @Binding var dateClickedData: DateClickData?
+    @Binding var timeClickedData: TimeClickData?
     var isEditable: Bool = true
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -390,6 +526,16 @@ struct RichTextEditor: NSViewRepresentable {
         let coordinator = context.coordinator
         textView.onFillInClicked = { charIndex, label, defaultValue, isMultiLine, isSelect, options, defaultIndex in
             coordinator.handleFillInClick(at: charIndex, label: label, defaultValue: defaultValue, isMultiLine: isMultiLine, isSelect: isSelect, options: options, defaultIndex: defaultIndex)
+        }
+
+        // Set up date click handler
+        textView.onDateClicked = { charIndex, format in
+            coordinator.handleDateClick(at: charIndex, format: format)
+        }
+
+        // Set up time click handler
+        textView.onTimeClicked = { charIndex, format in
+            coordinator.handleTimeClick(at: charIndex, format: format)
         }
 
         // Store reference to textView
@@ -455,6 +601,14 @@ struct RichTextEditor: NSViewRepresentable {
             parent.fillInClickedData = FillInClickData(index: index, label: label, defaultValue: defaultValue, isMultiLine: isMultiLine, isSelect: isSelect, options: options, defaultIndex: defaultIndex)
         }
 
+        func handleDateClick(at index: Int, format: String) {
+            parent.dateClickedData = DateClickData(index: index, format: format)
+        }
+
+        func handleTimeClick(at index: Int, format: String) {
+            parent.timeClickedData = TimeClickData(index: index, format: format)
+        }
+
         // Fix typing attributes when selection changes (e.g., after moving cursor past an attachment)
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
@@ -500,6 +654,8 @@ struct RichTextToolbar: View {
     @ObservedObject var textViewHolder: RichTextViewHolder
     @Binding var linkClickedAt: Int?
     @Binding var fillInClickedData: FillInClickData?
+    @Binding var dateClickedData: DateClickData?
+    @Binding var timeClickedData: TimeClickData?
     @State private var isBoldActive = false
     @State private var isItalicActive = false
     @State private var isUnderlineActive = false
@@ -521,6 +677,20 @@ struct RichTextToolbar: View {
     @State private var selectFillInOptions: [String] = []
     @State private var selectFillInDefaultIndex = 0
     @State private var editingSelectFillInRange: NSRange? = nil
+    @State private var showingDateConfigDialog = false
+    @State private var dateYearFormat = ""
+    @State private var dateMonthFormat = ""
+    @State private var dateDayFormat = ""
+    @State private var dateWeekdayFormat = ""
+    @State private var dateSeparator = " "
+    @State private var editingDateRange: NSRange? = nil
+    @State private var showingTimeConfigDialog = false
+    @State private var timeHourFormat = ""
+    @State private var timeMinuteFormat = ""
+    @State private var timeSecondFormat = ""
+    @State private var timeAMPMFormat = ""
+    @State private var timeSeparator = ""
+    @State private var editingTimeRange: NSRange? = nil
 
     var body: some View {
         HStack(spacing: 4) {
@@ -567,7 +737,16 @@ struct RichTextToolbar: View {
                 .frame(height: 16)
 
             // Insert Date
-            Button(action: { insertDate() }) {
+            Button(action: {
+                // Clear form and show dialog
+                dateYearFormat = ""
+                dateMonthFormat = ""
+                dateDayFormat = ""
+                dateWeekdayFormat = ""
+                dateSeparator = ""  // Will be set from parsed preview
+                editingDateRange = nil
+                showingDateConfigDialog = true
+            }) {
                 Image(systemName: "calendar")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
@@ -580,7 +759,16 @@ struct RichTextToolbar: View {
             .help("Insert Date")
 
             // Insert Time
-            Button(action: { insertTime() }) {
+            Button(action: {
+                // Clear form and show dialog
+                timeHourFormat = ""
+                timeMinuteFormat = ""
+                timeSecondFormat = ""
+                timeAMPMFormat = ""
+                timeSeparator = ""  // Will be set from parsed preview
+                editingTimeRange = nil
+                showingTimeConfigDialog = true
+            }) {
                 Image(systemName: "clock")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
@@ -733,6 +921,40 @@ struct RichTextToolbar: View {
             // Reset the trigger
             fillInClickedData = nil
         }
+        .onChange(of: dateClickedData) { clickedData in
+            guard let data = clickedData,
+                  let textView = textViewHolder.textView,
+                  let storage = textView.textStorage else { return }
+
+            // Find the date attachment at this position
+            let charIndex = data.index
+            if charIndex < storage.length {
+                // Parse the format and populate the dialog
+                parseFormatToComponents(data.format)
+                editingDateRange = NSRange(location: charIndex, length: 1)
+                showingDateConfigDialog = true
+            }
+
+            // Reset the trigger
+            dateClickedData = nil
+        }
+        .onChange(of: timeClickedData) { clickedData in
+            guard let data = clickedData,
+                  let textView = textViewHolder.textView,
+                  let storage = textView.textStorage else { return }
+
+            // Find the time attachment at this position
+            let charIndex = data.index
+            if charIndex < storage.length {
+                // Parse the format and populate the dialog
+                parseTimeFormatToComponents(data.format)
+                editingTimeRange = NSRange(location: charIndex, length: 1)
+                showingTimeConfigDialog = true
+            }
+
+            // Reset the trigger
+            timeClickedData = nil
+        }
         .sheet(isPresented: $showingLinkDialog) {
             LinkInputDialog(
                 linkURL: $linkURL,
@@ -786,6 +1008,38 @@ struct RichTextToolbar: View {
                 }
             )
         }
+        .sheet(isPresented: $showingDateConfigDialog) {
+            DateConfigDialog(
+                yearFormat: $dateYearFormat,
+                monthFormat: $dateMonthFormat,
+                dayFormat: $dateDayFormat,
+                weekdayFormat: $dateWeekdayFormat,
+                separator: $dateSeparator,
+                onInsert: {
+                    insertDateWithConfig()
+                    showingDateConfigDialog = false
+                },
+                onCancel: {
+                    showingDateConfigDialog = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingTimeConfigDialog) {
+            TimeConfigDialog(
+                hourFormat: $timeHourFormat,
+                minuteFormat: $timeMinuteFormat,
+                secondFormat: $timeSecondFormat,
+                ampmFormat: $timeAMPMFormat,
+                separator: $timeSeparator,
+                onInsert: {
+                    insertTimeWithConfig()
+                    showingTimeConfigDialog = false
+                },
+                onCancel: {
+                    showingTimeConfigDialog = false
+                }
+            )
+        }
     }
 
     private func startUpdatingFormattingState() {
@@ -802,7 +1056,6 @@ struct RichTextToolbar: View {
         guard let textView = textViewHolder.textView else { return }
 
         let range = textView.selectedRange()
-        let location = range.location
 
         // Check for zero-length selection (cursor position or empty document)
         if range.length == 0 {
@@ -951,14 +1204,226 @@ struct RichTextToolbar: View {
     }
 
     // Advanced feature placeholder functions
-    private func insertDate() {
-        // TODO: Implement date insertion
-        print("Insert Date clicked")
+    private func insertDateWithConfig() {
+        guard let textView = textViewHolder.textView else { return }
+
+        // Use the editing range if we're editing an existing date, otherwise use selection
+        let range = editingDateRange ?? textView.selectedRange()
+
+        // The separator now contains the complete format string (parsed from preview)
+        let format = dateSeparator
+
+        // Create date pill
+        let pillString = PlaceholderPillRenderer.createDateDisplayString(format: format)
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        // Clear editing range
+        editingDateRange = nil
+        textView.window?.makeFirstResponder(textView)
     }
 
-    private func insertTime() {
-        // TODO: Implement time insertion
-        print("Insert Time clicked")
+    private func parseFormatToComponents(_ format: String) {
+        // Parse a date format string back into components
+        // Look for common format codes and set the corresponding variables
+
+        // Year
+        if format.contains("yyyy") {
+            dateYearFormat = "yyyy"
+        } else if format.contains("yy") {
+            dateYearFormat = "yy"
+        } else {
+            dateYearFormat = ""
+        }
+
+        // Month
+        if format.contains("MMMM") {
+            dateMonthFormat = "MMMM"
+        } else if format.contains("MMM") {
+            dateMonthFormat = "MMM"
+        } else if format.contains("MM") {
+            dateMonthFormat = "MM"
+        } else if format.contains("M") {
+            dateMonthFormat = "M"
+        } else {
+            dateMonthFormat = ""
+        }
+
+        // Day
+        if format.contains("dd") {
+            dateDayFormat = "dd"
+        } else if format.contains("d") {
+            dateDayFormat = "d"
+        } else {
+            dateDayFormat = ""
+        }
+
+        // Weekday
+        if format.contains("EEEE") {
+            dateWeekdayFormat = "EEEE"
+        } else if format.contains("EEE") {
+            dateWeekdayFormat = "EEE"
+        } else {
+            dateWeekdayFormat = ""
+        }
+
+        // Store the full format in separator (we'll use it to reconstruct the preview)
+        dateSeparator = format
+    }
+
+    private func insertTimeWithConfig() {
+        guard let textView = textViewHolder.textView else { return }
+
+        // Use the editing range if we're editing an existing time, otherwise use selection
+        let range = editingTimeRange ?? textView.selectedRange()
+
+        // The separator now contains the complete format string (parsed from preview)
+        let format = timeSeparator
+
+        // Create time pill
+        let pillString = PlaceholderPillRenderer.createTimeDisplayString(format: format)
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        // Clear editing range
+        editingTimeRange = nil
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    private func parseTimeFormatToComponents(_ format: String) {
+        // Parse a time format string back into components
+        // Look for common format codes and set the corresponding variables
+
+        // Hour - check longer patterns first
+        if format.contains("HH") {
+            timeHourFormat = "HH"  // 24-hour, 2 digits
+        } else if format.contains("H") {
+            timeHourFormat = "H"   // 24-hour, 1-2 digits
+        } else if format.contains("hh") {
+            timeHourFormat = "hh"  // 12-hour, 2 digits
+        } else if format.contains("h") {
+            timeHourFormat = "h"   // 12-hour, 1-2 digits
+        } else {
+            timeHourFormat = ""
+        }
+
+        // Minute
+        if format.contains("mm") {
+            timeMinuteFormat = "mm"  // 2 digits
+        } else if format.contains("m") {
+            timeMinuteFormat = "m"   // 1-2 digits
+        } else {
+            timeMinuteFormat = ""
+        }
+
+        // Second
+        if format.contains("ss") {
+            timeSecondFormat = "ss"  // 2 digits
+        } else if format.contains("s") {
+            timeSecondFormat = "s"   // 1-2 digits
+        } else {
+            timeSecondFormat = ""
+        }
+
+        // AM/PM
+        if format.contains("a") {
+            timeAMPMFormat = "a"
+        } else {
+            timeAMPMFormat = ""
+        }
+
+        // Store the full format in separator (we'll use it to reconstruct the preview)
+        timeSeparator = format
+    }
+
+    private func insertDate(format: String) {
+        guard let textView = textViewHolder.textView else { return }
+
+        let range = textView.selectedRange()
+
+        // Create date pill
+        let pillString = PlaceholderPillRenderer.createDateDisplayString(format: format)
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    private func insertTime(format: String) {
+        guard let textView = textViewHolder.textView else { return }
+
+        let range = textView.selectedRange()
+
+        // Create time pill
+        let pillString = PlaceholderPillRenderer.createTimeDisplayString(format: format)
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        textView.window?.makeFirstResponder(textView)
     }
 
     private func insertClipboard() {
@@ -1695,5 +2160,731 @@ struct FillInFieldIcon: View {
                 }
             }
         }
+    }
+}
+
+// Date configuration dialog
+struct DateConfigDialog: View {
+    @Binding var yearFormat: String
+    @Binding var monthFormat: String
+    @Binding var dayFormat: String
+    @Binding var weekdayFormat: String
+    @Binding var separator: String
+    let onInsert: () -> Void
+    let onCancel: () -> Void
+
+    @State private var previewText: String = ""
+    @State private var isEditingPreview = false
+
+    private func updatePreviewFromFormats() {
+        // Build an array of selected components in logical order
+        var components: [String] = []
+
+        if !weekdayFormat.isEmpty {
+            components.append(weekdayFormat)
+        }
+        if !monthFormat.isEmpty {
+            components.append(monthFormat)
+        }
+        if !dayFormat.isEmpty {
+            components.append(dayFormat)
+        }
+        if !yearFormat.isEmpty {
+            components.append(yearFormat)
+        }
+
+        if components.isEmpty {
+            previewText = "No format selected"
+        } else {
+            // Join with space by default, or use the existing separator structure if it has custom text
+            let format = components.joined(separator: " ")
+            let formatter = DateFormatter()
+            formatter.dateFormat = format
+            previewText = formatter.string(from: Date())
+        }
+    }
+
+    private func parsePreviewToFormat() -> String {
+        // Try to reverse-engineer the format from the preview text
+        let format = previewText
+        let now = Date()
+
+        // Track what parts we've replaced so we can escape the rest
+        var replacements: [(range: Range<String.Index>, formatCode: String)] = []
+
+        // Find and collect all date component positions
+        if !weekdayFormat.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = weekdayFormat
+            let weekdayValue = formatter.string(from: now)
+            if let range = format.range(of: weekdayValue) {
+                replacements.append((range, weekdayFormat))
+            }
+        }
+
+        if !monthFormat.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = monthFormat
+            let monthValue = formatter.string(from: now)
+            if let range = format.range(of: monthValue) {
+                replacements.append((range, monthFormat))
+            }
+        }
+
+        if !dayFormat.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = dayFormat
+            let dayValue = formatter.string(from: now)
+            if let range = format.range(of: dayValue) {
+                replacements.append((range, dayFormat))
+            }
+        }
+
+        if !yearFormat.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = yearFormat
+            let yearValue = formatter.string(from: now)
+            if let range = format.range(of: yearValue) {
+                replacements.append((range, yearFormat))
+            }
+        }
+
+        // Sort replacements by position
+        replacements.sort { format.distance(from: format.startIndex, to: $0.range.lowerBound) < format.distance(from: format.startIndex, to: $1.range.lowerBound) }
+
+        // Build the format string with literal text escaped in single quotes
+        var result = ""
+        var currentIndex = format.startIndex
+
+        for (range, formatCode) in replacements {
+            // Add any literal text before this date component (wrapped in quotes)
+            if currentIndex < range.lowerBound {
+                let literalText = String(format[currentIndex..<range.lowerBound])
+                if !literalText.isEmpty {
+                    result += "'\(literalText)'"
+                }
+            }
+
+            // Add the format code
+            result += formatCode
+            currentIndex = range.upperBound
+        }
+
+        // Add any remaining literal text after the last date component
+        if currentIndex < format.endIndex {
+            let literalText = String(format[currentIndex..<format.endIndex])
+            if !literalText.isEmpty {
+                result += "'\(literalText)'"
+            }
+        }
+
+        return result
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Configure Date Format")
+                .font(.headline)
+
+            // Editable Preview
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Preview (editable - type to add custom text)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("", text: $previewText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium))
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(6)
+            }
+            .onAppear {
+                // If we have a dateSeparator (editing existing date), use it to generate preview
+                if !separator.isEmpty {
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = separator
+                    previewText = formatter.string(from: Date())
+                } else {
+                    // New date, build from components
+                    updatePreviewFromFormats()
+                }
+            }
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Year format
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Year")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                yearFormat = ""
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("None")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(yearFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                yearFormat = "yy"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("2-digit (25)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(yearFormat == "yy" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                yearFormat = "yyyy"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("4-digit (2025)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(yearFormat == "yyyy" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+                    }
+
+                    // Month format
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Month")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                monthFormat = ""
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("None")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(monthFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                monthFormat = "M"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("1-2 (12)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(monthFormat == "M" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                monthFormat = "MM"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("2-digit (12)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(monthFormat == "MM" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                monthFormat = "MMM"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("Short (Dec)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(monthFormat == "MMM" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                monthFormat = "MMMM"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("Full (December)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(monthFormat == "MMMM" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+                    }
+
+                    // Day format
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Day")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                dayFormat = ""
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("None")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(dayFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                dayFormat = "d"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("1-2 (4)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(dayFormat == "d" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                dayFormat = "dd"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("2-digit (04)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(dayFormat == "dd" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+                    }
+
+                    // Weekday format
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Weekday")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                weekdayFormat = ""
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("None")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(weekdayFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                weekdayFormat = "EEE"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("Short (Wed)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(weekdayFormat == "EEE" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                weekdayFormat = "EEEE"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("Full (Wednesday)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(weekdayFormat == "EEEE" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+                    }
+                }
+            }
+            .frame(height: 350)
+
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Insert") {
+                    // Update separator to store the final format
+                    separator = parsePreviewToFormat()
+                    onInsert()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(previewText.isEmpty || previewText == "No format selected")
+            }
+        }
+        .padding(20)
+        .frame(width: 500)
+    }
+}
+
+// Time configuration dialog
+struct TimeConfigDialog: View {
+    @Binding var hourFormat: String
+    @Binding var minuteFormat: String
+    @Binding var secondFormat: String
+    @Binding var ampmFormat: String
+    @Binding var separator: String
+    let onInsert: () -> Void
+    let onCancel: () -> Void
+
+    @State private var previewText: String = ""
+
+    private func updatePreviewFromFormats() {
+        // Build an array of selected components in logical order
+        var components: [String] = []
+
+        if !hourFormat.isEmpty {
+            components.append(hourFormat)
+        }
+        if !minuteFormat.isEmpty {
+            components.append(minuteFormat)
+        }
+        if !secondFormat.isEmpty {
+            components.append(secondFormat)
+        }
+        if !ampmFormat.isEmpty {
+            components.append(ampmFormat)
+        }
+
+        if components.isEmpty {
+            previewText = "No format selected"
+        } else {
+            // Join with colon by default
+            let format = components.joined(separator: ":")
+            let formatter = DateFormatter()
+            formatter.dateFormat = format
+            previewText = formatter.string(from: Date())
+        }
+    }
+
+    private func parsePreviewToFormat() -> String {
+        // Try to reverse-engineer the format from the preview text
+        let format = previewText
+        let now = Date()
+
+        // Track what parts we've replaced so we can escape the rest
+        var replacements: [(range: Range<String.Index>, formatCode: String)] = []
+
+        // Find and collect all time component positions
+        if !hourFormat.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = hourFormat
+            let hourValue = formatter.string(from: now)
+            if let range = format.range(of: hourValue) {
+                replacements.append((range, hourFormat))
+            }
+        }
+
+        if !minuteFormat.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = minuteFormat
+            let minuteValue = formatter.string(from: now)
+            if let range = format.range(of: minuteValue) {
+                replacements.append((range, minuteFormat))
+            }
+        }
+
+        if !secondFormat.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = secondFormat
+            let secondValue = formatter.string(from: now)
+            if let range = format.range(of: secondValue) {
+                replacements.append((range, secondFormat))
+            }
+        }
+
+        if !ampmFormat.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = ampmFormat
+            let ampmValue = formatter.string(from: now)
+            if let range = format.range(of: ampmValue) {
+                replacements.append((range, ampmFormat))
+            }
+        }
+
+        // Sort replacements by position
+        replacements.sort { format.distance(from: format.startIndex, to: $0.range.lowerBound) < format.distance(from: format.startIndex, to: $1.range.lowerBound) }
+
+        // Build the format string with literal text escaped in single quotes
+        var result = ""
+        var currentIndex = format.startIndex
+
+        for (range, formatCode) in replacements {
+            // Add any literal text before this time component (wrapped in quotes)
+            if currentIndex < range.lowerBound {
+                let literalText = String(format[currentIndex..<range.lowerBound])
+                if !literalText.isEmpty {
+                    result += "'\(literalText)'"
+                }
+            }
+
+            // Add the format code
+            result += formatCode
+            currentIndex = range.upperBound
+        }
+
+        // Add any remaining literal text after the last time component
+        if currentIndex < format.endIndex {
+            let literalText = String(format[currentIndex..<format.endIndex])
+            if !literalText.isEmpty {
+                result += "'\(literalText)'"
+            }
+        }
+
+        return result
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Configure Time Format")
+                .font(.headline)
+
+            // Editable Preview
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Preview (editable - type to add custom text)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("", text: $previewText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium))
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(6)
+            }
+            .onAppear {
+                // If we have a timeSeparator (editing existing time), use it to generate preview
+                if !separator.isEmpty {
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = separator
+                    previewText = formatter.string(from: Date())
+                } else {
+                    // New time, build from components
+                    updatePreviewFromFormats()
+                }
+            }
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Hour format
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Hour")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                hourFormat = ""
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("None")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(hourFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                hourFormat = "H"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("24hr 1-2 (0-23)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(hourFormat == "H" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                hourFormat = "HH"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("24hr 2-digit (00-23)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(hourFormat == "HH" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                hourFormat = "h"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("12hr 1-2 (1-12)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(hourFormat == "h" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                hourFormat = "hh"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("12hr 2-digit (01-12)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(hourFormat == "hh" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+                    }
+
+                    // Minute format
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Minute")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                minuteFormat = ""
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("None")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(minuteFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                minuteFormat = "m"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("1-2 digits (0-59)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(minuteFormat == "m" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                minuteFormat = "mm"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("2 digits (00-59)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(minuteFormat == "mm" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+                    }
+
+                    // Second format
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Second")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                secondFormat = ""
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("None")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(secondFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                secondFormat = "s"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("1-2 digits (0-59)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(secondFormat == "s" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                secondFormat = "ss"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("2 digits (00-59)")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(secondFormat == "ss" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+                    }
+
+                    // AM/PM
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("AM/PM")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                ampmFormat = ""
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("None")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(ampmFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+
+                            Button(action: {
+                                ampmFormat = "a"
+                                updatePreviewFromFormats()
+                            }) {
+                                Text("Show AM/PM")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .background(ampmFormat == "a" ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                        }
+                    }
+                }
+            }
+            .frame(height: 300)
+
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Insert") {
+                    // Update separator to store the final format
+                    separator = parsePreviewToFormat()
+                    onInsert()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(previewText.isEmpty || previewText == "No format selected")
+            }
+        }
+        .padding(20)
+        .frame(width: 500)
     }
 }

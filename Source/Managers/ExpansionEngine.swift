@@ -504,6 +504,50 @@ class ExpansionEngine {
             }
         }
 
+        // Replace date fields (pattern: {{date|format}})
+        let datePattern = "\\{\\{date\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: datePattern, options: []) {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+
+            // Replace in reverse order to maintain correct indices
+            for match in matches.reversed() {
+                let formatRange = match.range(at: 1)
+                let format = nsText.substring(with: formatRange)
+                let formattedDate = formatDate(with: format)
+
+                // Adjust cursor offset if replacement is before cursor
+                if let offset = cursorOffset, match.range.location < offset {
+                    let lengthDiff = formattedDate.count - match.range.length
+                    cursorOffset = offset + lengthDiff
+                }
+
+                result = (result as NSString).replacingCharacters(in: match.range, with: formattedDate)
+            }
+        }
+
+        // Replace time fields (pattern: {{time|format}})
+        let timePattern = "\\{\\{time\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: timePattern, options: []) {
+            let nsText = result as NSString
+            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+
+            // Replace in reverse order to maintain correct indices
+            for match in matches.reversed() {
+                let formatRange = match.range(at: 1)
+                let format = nsText.substring(with: formatRange)
+                let formattedTime = formatDate(with: format)
+
+                // Adjust cursor offset if replacement is before cursor
+                if let offset = cursorOffset, match.range.location < offset {
+                    let lengthDiff = formattedTime.count - match.range.length
+                    cursorOffset = offset + lengthDiff
+                }
+
+                result = (result as NSString).replacingCharacters(in: match.range, with: formattedTime)
+            }
+        }
+
         print("   Result: \(result)")
         print("   Cursor offset: \(cursorOffset?.description ?? "none")")
 
@@ -527,24 +571,45 @@ class ExpansionEngine {
                let fileWrapper = attachment.fileWrapper,
                let data = fileWrapper.regularFileContents {
 
-                // Check if it's a fill-in attachment (JSON)
+                // Check if it's a JSON attachment (fill-in, date, or time)
                 if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                   let type = json["type"] as? String,
-                   (type == "fillin_single" || type == "fillin_multi" || type == "fillin_select"),
-                   let label = json["label"] as? String {
-                    print("   ✓ Found \(type) attachment at range: \(range) with label: \(label)")
+                   let type = json["type"] as? String {
 
-                    let replacementText = fillInValues[label] ?? ""
-                    print("     → Replacing with value: \(replacementText)")
+                    // Handle date/time attachments
+                    if type == "date" || type == "time" {
+                        if let format = json["format"] as? String {
+                            print("   ✓ Found \(type) attachment at range: \(range) with format: \(format)")
 
-                    // Get attributes at this location to preserve formatting
-                    var attributes: [NSAttributedString.Key: Any] = [:]
-                    if range.location < mutableString.length {
-                        attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
-                        attributes[.font] = NSFont.systemFont(ofSize: 13)
-                        attributes[.foregroundColor] = NSColor.labelColor
+                            let formattedDate = self.formatDate(with: format)
+                            print("     → Replacing with formatted \(type): \(formattedDate)")
+
+                            // Get attributes at this location to preserve formatting
+                            var attributes: [NSAttributedString.Key: Any] = [:]
+                            if range.location < mutableString.length {
+                                attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
+                                attributes[.font] = NSFont.systemFont(ofSize: 13)
+                                attributes[.foregroundColor] = NSColor.labelColor
+                            }
+                            indicesToReplace.append((range: range, attributes: attributes, replacementText: formattedDate))
+                        }
                     }
-                    indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
+                    // Handle fill-in attachments
+                    else if (type == "fillin_single" || type == "fillin_multi" || type == "fillin_select"),
+                            let label = json["label"] as? String {
+                        print("   ✓ Found \(type) attachment at range: \(range) with label: \(label)")
+
+                        let replacementText = fillInValues[label] ?? ""
+                        print("     → Replacing with value: \(replacementText)")
+
+                        // Get attributes at this location to preserve formatting
+                        var attributes: [NSAttributedString.Key: Any] = [:]
+                        if range.location < mutableString.length {
+                            attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
+                            attributes[.font] = NSFont.systemFont(ofSize: 13)
+                            attributes[.foregroundColor] = NSColor.labelColor
+                        }
+                        indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
+                    }
                 }
                 // Check if it's a placeholder token (plain text)
                 else if let storageText = String(data: data, encoding: .utf8) {
@@ -1166,6 +1231,14 @@ class ExpansionEngine {
                 }
             }
         }
+    }
+
+    // MARK: - Date/Time Formatting
+
+    private func formatDate(with format: String) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = format
+        return dateFormatter.string(from: Date())
     }
 
     private func parseTextSegments(_ text: String) -> [TextSegment] {

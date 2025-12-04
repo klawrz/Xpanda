@@ -303,6 +303,124 @@ class SelectFillInPillAttachmentCell: NSTextAttachmentCell {
     }
 }
 
+// Custom attachment cell for date pills
+class DatePillAttachmentCell: NSTextAttachmentCell {
+    let format: String
+
+    init(format: String) {
+        self.format = format
+        super.init()
+    }
+
+    required init(coder: NSCoder) {
+        self.format = ""
+        super.init(coder: coder)
+    }
+
+    override func cellSize() -> NSSize {
+        // Show "date" for all date pills
+        let text = "date"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemGreen
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        return NSSize(width: textSize.width + 8, height: 18)
+    }
+
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        // Draw rounded rectangle pill
+        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 3, yRadius: 3)
+
+        // Fill with light green background
+        NSColor.systemGreen.withAlphaComponent(0.2).setFill()
+        path.fill()
+
+        // Draw green border
+        NSColor.systemGreen.withAlphaComponent(0.3).setStroke()
+        path.lineWidth = 1.0
+        path.stroke()
+
+        // Draw label text - always show "date"
+        let text = "date"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemGreen
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        let textRect = NSRect(
+            x: cellFrame.origin.x + (cellFrame.width - textSize.width) / 2,
+            y: cellFrame.origin.y + (cellFrame.height - textSize.height) / 2 + 1,
+            width: textSize.width,
+            height: textSize.height
+        )
+        text.draw(in: textRect, withAttributes: attrs)
+    }
+
+    override func cellBaselineOffset() -> NSPoint {
+        return NSPoint(x: 0, y: -3)
+    }
+}
+
+// Custom attachment cell for time pills
+class TimePillAttachmentCell: NSTextAttachmentCell {
+    let format: String
+
+    init(format: String) {
+        self.format = format
+        super.init()
+    }
+
+    required init(coder: NSCoder) {
+        self.format = ""
+        super.init(coder: coder)
+    }
+
+    override func cellSize() -> NSSize {
+        // Show "time" for all time pills
+        let text = "time"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemOrange
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        return NSSize(width: textSize.width + 8, height: 18)
+    }
+
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        // Draw rounded rectangle pill
+        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 3, yRadius: 3)
+
+        // Fill with light orange background
+        NSColor.systemOrange.withAlphaComponent(0.2).setFill()
+        path.fill()
+
+        // Draw orange border
+        NSColor.systemOrange.withAlphaComponent(0.3).setStroke()
+        path.lineWidth = 1.0
+        path.stroke()
+
+        // Draw label text - always show "time"
+        let text = "time"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.systemOrange
+        ]
+        let textSize = text.size(withAttributes: attrs)
+        let textRect = NSRect(
+            x: cellFrame.origin.x + (cellFrame.width - textSize.width) / 2,
+            y: cellFrame.origin.y + (cellFrame.height - textSize.height) / 2 + 1,
+            width: textSize.width,
+            height: textSize.height
+        )
+        text.draw(in: textRect, withAttributes: attrs)
+    }
+
+    override func cellBaselineOffset() -> NSPoint {
+        return NSPoint(x: 0, y: -3)
+    }
+}
+
 // Helper class to render placeholder pills
 class PlaceholderPillRenderer {
     // Convert storage text to display attributed string with pill styling
@@ -383,6 +501,50 @@ class PlaceholderPillRenderer {
         if let jsonData = try? JSONSerialization.data(withJSONObject: fillInData, options: []) {
             let wrapper = FileWrapper(regularFileWithContents: jsonData)
             wrapper.preferredFilename = "fillin_select.json"
+            attachment.fileWrapper = wrapper
+        }
+
+        return NSAttributedString(attachment: attachment)
+    }
+
+    // Create a date pill with format string
+    static func createDateDisplayString(format: String) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+
+        // Use custom cell for rendering
+        attachment.attachmentCell = DatePillAttachmentCell(format: format)
+
+        // Store the date format as JSON in the attachment
+        let dateData: [String: String] = [
+            "type": "date",
+            "format": format
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: dateData, options: []) {
+            let wrapper = FileWrapper(regularFileWithContents: jsonData)
+            wrapper.preferredFilename = "date.json"
+            attachment.fileWrapper = wrapper
+        }
+
+        return NSAttributedString(attachment: attachment)
+    }
+
+    // Create a time pill with format string
+    static func createTimeDisplayString(format: String) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+
+        // Use custom cell for rendering
+        attachment.attachmentCell = TimePillAttachmentCell(format: format)
+
+        // Store the time format as JSON in the attachment
+        let timeData: [String: String] = [
+            "type": "time",
+            "format": format
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: timeData, options: []) {
+            let wrapper = FileWrapper(regularFileWithContents: jsonData)
+            wrapper.preferredFilename = "time.json"
             attachment.fileWrapper = wrapper
         }
 
@@ -478,6 +640,34 @@ class XPHelper {
             }
         }
 
+        // Pattern: {{date|format}}
+        let datePattern = "\\{\\{date\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: datePattern, options: []) {
+            let nsText3 = mutableString.string as NSString
+            let matches = regex.matches(in: mutableString.string, options: [], range: NSRange(location: 0, length: nsText3.length))
+            for match in matches.reversed() {
+                let formatRange = match.range(at: 1)
+                let format = nsText3.substring(with: formatRange)
+
+                let pillString = PlaceholderPillRenderer.createDateDisplayString(format: format)
+                mutableString.replaceCharacters(in: match.range, with: pillString)
+            }
+        }
+
+        // Pattern: {{time|format}}
+        let timePattern = "\\{\\{time\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: timePattern, options: []) {
+            let nsText4 = mutableString.string as NSString
+            let matches = regex.matches(in: mutableString.string, options: [], range: NSRange(location: 0, length: nsText4.length))
+            for match in matches.reversed() {
+                let formatRange = match.range(at: 1)
+                let format = nsText4.substring(with: formatRange)
+
+                let pillString = PlaceholderPillRenderer.createTimeDisplayString(format: format)
+                mutableString.replaceCharacters(in: match.range, with: pillString)
+            }
+        }
+
         return mutableString
     }
 
@@ -494,21 +684,35 @@ class XPHelper {
                let fileWrapper = attachment.fileWrapper,
                let data = fileWrapper.regularFileContents {
 
-                // Check if it's a fill-in attachment (JSON)
+                // Check if it's a JSON attachment (fill-in, date, or time)
                 if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                   let type = json["type"] as? String,
-                   let label = json["label"] as? String {
+                   let type = json["type"] as? String {
 
                     let storageText: String
-                    if type == "fillin_select" {
-                        // Convert select fill-in: {{fillin_select|label|option1,option2|defaultIndex}}
-                        let options = json["options"] as? [String] ?? []
-                        let defaultIndex = json["defaultIndex"] as? Int ?? 0
-                        let optionsString = options.joined(separator: ",")
-                        storageText = "{{\(type)|\(label)|\(optionsString)|\(defaultIndex)}}"
-                    } else if let defaultValue = json["default"] as? String {
-                        // Convert single/multi fill-in: {{fillin_single|label|defaultValue}} or {{fillin_multi|label|defaultValue}}
-                        storageText = "{{\(type)|\(label)|\(defaultValue)}}"
+
+                    // Handle date/time attachments (no label field)
+                    if type == "date" || type == "time" {
+                        if let format = json["format"] as? String {
+                            // Convert date/time: {{date|format}} or {{time|format}}
+                            storageText = "{{\(type)|\(format)}}"
+                        } else {
+                            return
+                        }
+                    }
+                    // Handle fill-in attachments (have label field)
+                    else if let label = json["label"] as? String {
+                        if type == "fillin_select" {
+                            // Convert select fill-in: {{fillin_select|label|option1,option2|defaultIndex}}
+                            let options = json["options"] as? [String] ?? []
+                            let defaultIndex = json["defaultIndex"] as? Int ?? 0
+                            let optionsString = options.joined(separator: ",")
+                            storageText = "{{\(type)|\(label)|\(optionsString)|\(defaultIndex)}}"
+                        } else if let defaultValue = json["default"] as? String {
+                            // Convert single/multi fill-in: {{fillin_single|label|defaultValue}} or {{fillin_multi|label|defaultValue}}
+                            storageText = "{{\(type)|\(label)|\(defaultValue)}}"
+                        } else {
+                            return
+                        }
                     } else {
                         return
                     }
