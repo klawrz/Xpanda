@@ -305,9 +305,149 @@ class ExpansionEngine {
         } else if xp.isRichText, let attributedString = xp.attributedString {
             // Process placeholder replacement for rich text
             print("   → Using rich text mode")
+            print("   Input attributed string length: \(attributedString.length)")
+            print("   Input string: \(attributedString.string)")
+
+            // Check for images in the input
+            var imageCount = 0
+            attributedString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributedString.length), options: []) { value, range, _ in
+                if let attachment = value as? NSTextAttachment, attachment.image != nil {
+                    imageCount += 1
+                    print("   📸 Input has image #\(imageCount) at range \(range), size: \(attachment.image?.size ?? .zero)")
+                }
+            }
+
             let (processedAttributedString, offset) = replacePlaceholders(in: attributedString, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
-            pasteboard.writeObjects([processedAttributedString])
+
+            print("   Processed attributed string length: \(processedAttributedString.length)")
+            print("   Processed string: \(processedAttributedString.string)")
+
+            // Check for images in the processed output
+            var processedImageCount = 0
+            processedAttributedString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: processedAttributedString.length), options: []) { value, range, _ in
+                if let attachment = value as? NSTextAttachment, attachment.image != nil {
+                    processedImageCount += 1
+                    print("   📸 Processed has image #\(processedImageCount) at range \(range), size: \(attachment.image?.size ?? .zero)")
+                }
+            }
+
+            // Write rich text with images to pasteboard
+            do {
+                // For images, we need to write using the proper pasteboard types
+                // Try multiple formats for maximum compatibility
+
+                // 1. Write as NSAttributedString object (works for native macOS apps)
+                pasteboard.writeObjects([processedAttributedString])
+                print("   ✓ Wrote NSAttributedString object to pasteboard")
+
+                // 2. Write HTML with embedded images (for web apps like Google Docs)
+                // Build HTML with both text and base64-encoded images
+                var hasImages = false
+                var htmlParts: [(index: Int, html: String)] = []
+
+                // Find all images and create base64 HTML for them
+                processedAttributedString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: processedAttributedString.length), options: []) { value, range, _ in
+                    if let attachment = value as? NSTextAttachment,
+                       let image = attachment.image,
+                       let tiffData = image.tiffRepresentation,
+                       let bitmapImage = NSBitmapImageRep(data: tiffData),
+                       let pngData = bitmapImage.representation(using: .png, properties: [:]) {
+
+                        hasImages = true
+                        let base64String = pngData.base64EncodedString()
+                        let imageHtml = "<img src=\"data:image/png;base64,\(base64String)\" width=\"\(Int(image.size.width))\" height=\"\(Int(image.size.height))\" />"
+                        htmlParts.append((index: range.location, html: imageHtml))
+                        print("   ✓ Created base64 embedded image (\(pngData.count) bytes)")
+                    }
+                }
+
+                // Build complete HTML with text and images
+                if hasImages {
+                    var htmlString = ""
+                    let fullText = processedAttributedString.string
+                    var currentIndex = 0
+
+                    // Sort image parts by index
+                    let sortedParts = htmlParts.sorted { $0.index < $1.index }
+
+                    for part in sortedParts {
+                        // Add text before this image
+                        if currentIndex < part.index {
+                            let textRange = fullText.index(fullText.startIndex, offsetBy: currentIndex)..<fullText.index(fullText.startIndex, offsetBy: part.index)
+                            let textContent = String(fullText[textRange])
+                            if !textContent.isEmpty {
+                                // Escape HTML special characters
+                                let escaped = textContent
+                                    .replacingOccurrences(of: "&", with: "&amp;")
+                                    .replacingOccurrences(of: "<", with: "&lt;")
+                                    .replacingOccurrences(of: ">", with: "&gt;")
+                                    .replacingOccurrences(of: "\n", with: "<br>")
+                                htmlString += escaped
+                            }
+                        }
+
+                        // Add the image
+                        htmlString += part.html
+
+                        // Move past the attachment character (U+FFFC)
+                        currentIndex = part.index + 1
+                    }
+
+                    // Add any remaining text after the last image
+                    if currentIndex < fullText.count {
+                        let textRange = fullText.index(fullText.startIndex, offsetBy: currentIndex)..<fullText.endIndex
+                        let textContent = String(fullText[textRange])
+                        if !textContent.isEmpty {
+                            let escaped = textContent
+                                .replacingOccurrences(of: "&", with: "&amp;")
+                                .replacingOccurrences(of: "<", with: "&lt;")
+                                .replacingOccurrences(of: ">", with: "&gt;")
+                                .replacingOccurrences(of: "\n", with: "<br>")
+                            htmlString += escaped
+                        }
+                    }
+
+                    if let htmlData = htmlString.data(using: .utf8) {
+                        pasteboard.setData(htmlData, forType: .html)
+                        print("   ✓ Wrote HTML with embedded images and text to pasteboard (\(htmlData.count) bytes)")
+                    }
+                } else {
+                    // Fall back to default HTML conversion for text-only content
+                    if let htmlData = try? processedAttributedString.data(
+                        from: NSRange(location: 0, length: processedAttributedString.length),
+                        documentAttributes: [
+                            .documentType: NSAttributedString.DocumentType.html,
+                            .characterEncoding: String.Encoding.utf8.rawValue
+                        ]
+                    ) {
+                        pasteboard.setData(htmlData, forType: .html)
+                        print("   ✓ Wrote HTML data to pasteboard (\(htmlData.count) bytes)")
+                    }
+                }
+
+                // 3. Write RTFD data (for apps that support it)
+                if let rtfdData = try? processedAttributedString.data(
+                    from: NSRange(location: 0, length: processedAttributedString.length),
+                    documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+                ) {
+                    pasteboard.setData(rtfdData, forType: .rtfd)
+                    print("   ✓ Wrote RTFD data to pasteboard (\(rtfdData.count) bytes)")
+                }
+
+                // 4. Write RTF for apps that don't support images
+                if let rtfData = try? processedAttributedString.data(
+                    from: NSRange(location: 0, length: processedAttributedString.length),
+                    documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+                ) {
+                    pasteboard.setData(rtfData, forType: .rtf)
+                    print("   ✓ Wrote RTF data to pasteboard (\(rtfData.count) bytes)")
+                }
+
+                // 5. Write plain text as fallback
+                pasteboard.setString(processedAttributedString.string, forType: .string)
+                print("   ✓ Wrote plain text to pasteboard")
+            }
         } else {
             // Process placeholder replacement for plain text
             print("   → Using fallback plain text mode")
@@ -567,21 +707,48 @@ class ExpansionEngine {
         var indicesToReplace: [(range: NSRange, attributes: [NSAttributedString.Key: Any], replacementText: String)] = []
 
         mutableString.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
-            if let attachment = value as? NSTextAttachment,
-               let fileWrapper = attachment.fileWrapper,
-               let data = fileWrapper.regularFileContents {
+            if let attachment = value as? NSTextAttachment {
+                // Check if it's an image attachment (has image property set)
+                if attachment.image != nil {
+                    print("   ✓ Found image attachment at range: \(range)")
+                    print("     → Preserving image in expansion")
+                    // Don't add to indicesToReplace - images should be preserved as-is
+                    return
+                }
 
-                // Check if it's a JSON attachment (fill-in, date, or time)
-                if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                   let type = json["type"] as? String {
+                // Process attachments with fileWrapper data
+                if let fileWrapper = attachment.fileWrapper,
+                   let data = fileWrapper.regularFileContents {
 
-                    // Handle date/time attachments
-                    if type == "date" || type == "time" {
-                        if let format = json["format"] as? String {
-                            print("   ✓ Found \(type) attachment at range: \(range) with format: \(format)")
+                    // Check if it's a JSON attachment (fill-in, date, or time)
+                    if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                       let type = json["type"] as? String {
 
-                            let formattedDate = self.formatDate(with: format)
-                            print("     → Replacing with formatted \(type): \(formattedDate)")
+                        // Handle date/time attachments
+                        if type == "date" || type == "time" {
+                            if let format = json["format"] as? String {
+                                print("   ✓ Found \(type) attachment at range: \(range) with format: \(format)")
+
+                                let formattedDate = self.formatDate(with: format)
+                                print("     → Replacing with formatted \(type): \(formattedDate)")
+
+                                // Get attributes at this location to preserve formatting
+                                var attributes: [NSAttributedString.Key: Any] = [:]
+                                if range.location < mutableString.length {
+                                    attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
+                                    attributes[.font] = NSFont.systemFont(ofSize: 13)
+                                    attributes[.foregroundColor] = NSColor.labelColor
+                                }
+                                indicesToReplace.append((range: range, attributes: attributes, replacementText: formattedDate))
+                            }
+                        }
+                        // Handle fill-in attachments
+                        else if (type == "fillin_single" || type == "fillin_multi" || type == "fillin_select"),
+                                let label = json["label"] as? String {
+                            print("   ✓ Found \(type) attachment at range: \(range) with label: \(label)")
+
+                            let replacementText = fillInValues[label] ?? ""
+                            print("     → Replacing with value: \(replacementText)")
 
                             // Get attributes at this location to preserve formatting
                             var attributes: [NSAttributedString.Key: Any] = [:]
@@ -590,48 +757,31 @@ class ExpansionEngine {
                                 attributes[.font] = NSFont.systemFont(ofSize: 13)
                                 attributes[.foregroundColor] = NSColor.labelColor
                             }
-                            indicesToReplace.append((range: range, attributes: attributes, replacementText: formattedDate))
+                            indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
                         }
                     }
-                    // Handle fill-in attachments
-                    else if (type == "fillin_single" || type == "fillin_multi" || type == "fillin_select"),
-                            let label = json["label"] as? String {
-                        print("   ✓ Found \(type) attachment at range: \(range) with label: \(label)")
+                    // Check if it's a placeholder token (plain text)
+                    else if let storageText = String(data: data, encoding: .utf8) {
+                        print("   ✓ Found attachment at range: \(range) with text: \(storageText)")
 
-                        let replacementText = fillInValues[label] ?? ""
-                        print("     → Replacing with value: \(replacementText)")
-
-                        // Get attributes at this location to preserve formatting
-                        var attributes: [NSAttributedString.Key: Any] = [:]
-                        if range.location < mutableString.length {
-                            attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
-                            attributes[.font] = NSFont.systemFont(ofSize: 13)
-                            attributes[.foregroundColor] = NSColor.labelColor
+                        // Determine replacement based on placeholder type
+                        var replacementText = ""
+                        if storageText == PlaceholderToken.clipboard.storageText {
+                            replacementText = clipboardContent
+                            print("     → Clipboard placeholder, replacing with clipboard content")
+                        } else if storageText == PlaceholderToken.cursor.storageText {
+                            replacementText = "" // Remove cursor placeholder
+                            if cursorOffset == nil {
+                                cursorOffset = range.location
+                                print("     → Cursor placeholder found at offset: \(range.location)")
+                            }
                         }
+
+                        // Found a placeholder attachment
+                        var attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
+                        attributes.removeValue(forKey: .attachment)
                         indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
                     }
-                }
-                // Check if it's a placeholder token (plain text)
-                else if let storageText = String(data: data, encoding: .utf8) {
-                    print("   ✓ Found attachment at range: \(range) with text: \(storageText)")
-
-                    // Determine replacement based on placeholder type
-                    var replacementText = ""
-                    if storageText == PlaceholderToken.clipboard.storageText {
-                        replacementText = clipboardContent
-                        print("     → Clipboard placeholder, replacing with clipboard content")
-                    } else if storageText == PlaceholderToken.cursor.storageText {
-                        replacementText = "" // Remove cursor placeholder
-                        if cursorOffset == nil {
-                            cursorOffset = range.location
-                            print("     → Cursor placeholder found at offset: \(range.location)")
-                        }
-                    }
-
-                    // Found a placeholder attachment
-                    var attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
-                    attributes.removeValue(forKey: .attachment)
-                    indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
                 }
             }
         }
@@ -653,14 +803,28 @@ class ExpansionEngine {
             print("   ✓ Replaced attachment with: \"\(item.replacementText)\"")
         }
 
-        // Find U+FFFC characters (object replacement character) which indicate where attachments were
+        // Find U+FFFC characters (object replacement character) that DON'T have valid attachments
+        // (Image attachments should be preserved, not replaced with clipboard)
         let plainText = mutableString.string
         var replacementRanges: [(range: NSRange, attributes: [NSAttributedString.Key: Any])] = []
 
         for (index, char) in plainText.enumerated() {
             if char == "\u{FFFC}" {
                 let nsRange = NSRange(location: index, length: 1)
-                print("   ✓ Found U+FFFC character at index: \(index)")
+
+                // Check if this U+FFFC has a valid attachment (like an image)
+                if nsRange.location < mutableString.length {
+                    let attributes = mutableString.attributes(at: nsRange.location, effectiveRange: nil)
+                    if let attachment = attributes[.attachment] as? NSTextAttachment {
+                        // Check if it's an image attachment - preserve it
+                        if attachment.image != nil {
+                            print("   ℹ️ Skipping U+FFFC at index \(index) - has valid image attachment")
+                            continue
+                        }
+                    }
+                }
+
+                print("   ✓ Found U+FFFC character at index: \(index) without valid attachment")
 
                 // Get attributes at this location
                 var attributes: [NSAttributedString.Key: Any] = [:]
@@ -783,6 +947,7 @@ class ExpansionEngine {
         let panel: NSPanel
         let xp: XP
         let previousApp: NSRunningApplication?
+        var observers: [NSObjectProtocol] = []
 
         init(fields: [(label: String, control: NSView, isMultiLine: Bool)], panel: NSPanel, xp: XP, previousApp: NSRunningApplication?) {
             self.fields = fields
@@ -802,13 +967,32 @@ class ExpansionEngine {
 
         // Get the text to search
         let textToSearch: String
-        if xp.isRichText, let data = xp.richTextData,
-           let loadedString = try? NSAttributedString(
-               data: data,
-               options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
-               documentAttributes: nil
-           ) {
-            textToSearch = loadedString.string
+        if xp.isRichText, let data = xp.richTextData {
+            // Try to load the data, attempting RTFD first (for images), then RTF for backward compatibility
+            var loadedString: NSAttributedString?
+
+            // First try RTFD (supports images)
+            if let rtfdString = try? NSAttributedString(
+                data: data,
+                options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtfd],
+                documentAttributes: nil
+            ) {
+                loadedString = rtfdString
+            }
+            // Fall back to RTF (for older XPs without images)
+            else if let rtfString = try? NSAttributedString(
+                data: data,
+                options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+            ) {
+                loadedString = rtfString
+            }
+            // Last resort: try to load without specifying type
+            else if let anyString = try? NSAttributedString(data: data, options: [:], documentAttributes: nil) {
+                loadedString = anyString
+            }
+
+            textToSearch = loadedString?.string ?? xp.expansion
         } else {
             textToSearch = xp.expansion
         }
@@ -868,13 +1052,32 @@ class ExpansionEngine {
 
         // Get the expansion text
         let expansionText: String
-        if xp.isRichText, let data = xp.richTextData,
-           let loadedString = try? NSAttributedString(
-               data: data,
-               options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
-               documentAttributes: nil
-           ) {
-            expansionText = loadedString.string
+        if xp.isRichText, let data = xp.richTextData {
+            // Try to load the data, attempting RTFD first (for images), then RTF for backward compatibility
+            var loadedString: NSAttributedString?
+
+            // First try RTFD (supports images)
+            if let rtfdString = try? NSAttributedString(
+                data: data,
+                options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtfd],
+                documentAttributes: nil
+            ) {
+                loadedString = rtfdString
+            }
+            // Fall back to RTF (for older XPs without images)
+            else if let rtfString = try? NSAttributedString(
+                data: data,
+                options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+            ) {
+                loadedString = rtfString
+            }
+            // Last resort: try to load without specifying type
+            else if let anyString = try? NSAttributedString(data: data, options: [:], documentAttributes: nil) {
+                loadedString = anyString
+            }
+
+            expansionText = loadedString?.string ?? xp.expansion
         } else {
             expansionText = xp.expansion
         }
@@ -1052,39 +1255,6 @@ class ExpansionEngine {
         // Initial preview update
         updatePreview()
 
-        // Add observers to controls to update preview on change
-        for (_, control, _) in inputControls {
-            if let textField = control as? NSTextField {
-                textField.target = nil
-                textField.action = #selector(NSTextField.selectText(_:))
-
-                // Use NotificationCenter to observe text changes
-                NotificationCenter.default.addObserver(
-                    forName: NSControl.textDidChangeNotification,
-                    object: textField,
-                    queue: .main
-                ) { _ in
-                    updatePreview()
-                }
-            } else if let textView = control as? NSTextView {
-                // Use NotificationCenter to observe text changes
-                NotificationCenter.default.addObserver(
-                    forName: NSText.didChangeNotification,
-                    object: textView,
-                    queue: .main
-                ) { _ in
-                    updatePreview()
-                }
-            } else if let popupButton = control as? NSPopUpButton {
-                // Add action to popup button to update preview on selection change
-                popupButton.target = self
-                popupButton.action = #selector(popupButtonChanged(_:))
-
-                // Store the update closure in associated object
-                objc_setAssociatedObject(popupButton, &ExpansionEngine.previewUpdateKey, updatePreview, .OBJC_ASSOCIATION_RETAIN)
-            }
-        }
-
         // Create buttons at bottom
         let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
         cancelButton.frame = NSRect(x: 20, y: yOffset + 8, width: 80, height: 30)
@@ -1129,7 +1299,45 @@ class ExpansionEngine {
 
         // Create a wrapper to store the data including the previous app
         let wrapper = FillInDataWrapper(fields: inputControls, panel: panel, xp: xp, previousApp: previousApp)
+
+        // Add observers to controls to update preview on change and store tokens in wrapper
+        for (_, control, _) in inputControls {
+            if let textField = control as? NSTextField {
+                textField.target = nil
+                textField.action = #selector(NSTextField.selectText(_:))
+
+                // Use NotificationCenter to observe text changes
+                let observer = NotificationCenter.default.addObserver(
+                    forName: NSControl.textDidChangeNotification,
+                    object: textField,
+                    queue: .main
+                ) { _ in
+                    updatePreview()
+                }
+                wrapper.observers.append(observer)
+            } else if let textView = control as? NSTextView {
+                // Use NotificationCenter to observe text changes
+                let observer = NotificationCenter.default.addObserver(
+                    forName: NSText.didChangeNotification,
+                    object: textView,
+                    queue: .main
+                ) { _ in
+                    updatePreview()
+                }
+                wrapper.observers.append(observer)
+            } else if let popupButton = control as? NSPopUpButton {
+                // Add action to popup button to update preview on selection change
+                popupButton.target = self
+                popupButton.action = #selector(popupButtonChanged(_:))
+
+                // Store the update closure in associated object
+                objc_setAssociatedObject(popupButton, &ExpansionEngine.previewUpdateKey, updatePreview, .OBJC_ASSOCIATION_RETAIN)
+            }
+        }
+
         objc_setAssociatedObject(insertButton, &ExpansionEngine.insertButtonWrapperKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
+        // Also store wrapper on cancel button so we can access observers
+        objc_setAssociatedObject(cancelButton, &ExpansionEngine.cancelButtonPanelKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
 
         // Activate Xpanda and show the panel first
         NSApp.activate(ignoringOtherApps: true)
@@ -1160,17 +1368,43 @@ class ExpansionEngine {
     }
 
     @objc private func handleFillInCancel(_ sender: NSButton) {
-        guard let panel = objc_getAssociatedObject(sender, &ExpansionEngine.cancelButtonPanelKey) as? NSPanel else {
-            print("   ❌ Failed to get panel")
+        guard let wrapper = objc_getAssociatedObject(sender, &ExpansionEngine.cancelButtonPanelKey) as? FillInDataWrapper else {
+            print("   ❌ Failed to get wrapper")
             return
         }
 
         print("   User cancelled")
-        panel.close()
+
+        // Remove all NotificationCenter observers using stored tokens
+        for observer in wrapper.observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        wrapper.observers.removeAll()
+
+        // Remove associated objects to break reference cycle
+        objc_setAssociatedObject(sender, &ExpansionEngine.cancelButtonPanelKey, nil, .OBJC_ASSOCIATION_RETAIN)
+
+        // Clear all associated objects from controls to break reference cycles
+        for (_, control, _) in wrapper.fields {
+            if let popupButton = control as? NSPopUpButton {
+                objc_setAssociatedObject(popupButton, &ExpansionEngine.previewUpdateKey, nil, .OBJC_ASSOCIATION_RETAIN)
+            }
+        }
+
+        // Find and clear associated object from insert button too
+        if let contentView = wrapper.panel.contentView {
+            for subview in contentView.subviews {
+                if let button = subview as? NSButton {
+                    objc_setAssociatedObject(button, &ExpansionEngine.insertButtonWrapperKey, nil, .OBJC_ASSOCIATION_RETAIN)
+                }
+            }
+        }
+
+        wrapper.panel.close()
 
         // Restore main windows
         for window in NSApp.windows {
-            if window != panel && window.canBecomeKey {
+            if window != wrapper.panel && window.canBecomeKey {
                 window.orderFront(nil)
             }
         }
@@ -1197,6 +1431,31 @@ class ExpansionEngine {
         }
 
         print("   Collected values: \(fillInValues)")
+
+        // Remove all NotificationCenter observers using stored tokens
+        for observer in wrapper.observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        wrapper.observers.removeAll()
+
+        // Remove associated objects to break reference cycle
+        objc_setAssociatedObject(sender, &ExpansionEngine.insertButtonWrapperKey, nil, .OBJC_ASSOCIATION_RETAIN)
+
+        // Clear all associated objects from controls to break reference cycles
+        for (_, control, _) in wrapper.fields {
+            if let popupButton = control as? NSPopUpButton {
+                objc_setAssociatedObject(popupButton, &ExpansionEngine.previewUpdateKey, nil, .OBJC_ASSOCIATION_RETAIN)
+            }
+        }
+
+        // Find and clear associated object from cancel button too
+        if let contentView = wrapper.panel.contentView {
+            for subview in contentView.subviews {
+                if let button = subview as? NSButton {
+                    objc_setAssociatedObject(button, &ExpansionEngine.cancelButtonPanelKey, nil, .OBJC_ASSOCIATION_RETAIN)
+                }
+            }
+        }
 
         // Close panel
         wrapper.panel.close()

@@ -680,49 +680,58 @@ class XPHelper {
 
         // Find all attachments
         mutableString.enumerateAttribute(.attachment, in: fullRange, options: [.reverse]) { value, range, _ in
-            if let attachment = value as? NSTextAttachment,
-               let fileWrapper = attachment.fileWrapper,
-               let data = fileWrapper.regularFileContents {
-
-                // Check if it's a JSON attachment (fill-in, date, or time)
-                if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                   let type = json["type"] as? String {
-
-                    let storageText: String
-
-                    // Handle date/time attachments (no label field)
-                    if type == "date" || type == "time" {
-                        if let format = json["format"] as? String {
-                            // Convert date/time: {{date|format}} or {{time|format}}
-                            storageText = "{{\(type)|\(format)}}"
-                        } else {
-                            return
-                        }
-                    }
-                    // Handle fill-in attachments (have label field)
-                    else if let label = json["label"] as? String {
-                        if type == "fillin_select" {
-                            // Convert select fill-in: {{fillin_select|label|option1,option2|defaultIndex}}
-                            let options = json["options"] as? [String] ?? []
-                            let defaultIndex = json["defaultIndex"] as? Int ?? 0
-                            let optionsString = options.joined(separator: ",")
-                            storageText = "{{\(type)|\(label)|\(optionsString)|\(defaultIndex)}}"
-                        } else if let defaultValue = json["default"] as? String {
-                            // Convert single/multi fill-in: {{fillin_single|label|defaultValue}} or {{fillin_multi|label|defaultValue}}
-                            storageText = "{{\(type)|\(label)|\(defaultValue)}}"
-                        } else {
-                            return
-                        }
-                    } else {
-                        return
-                    }
-                    replacements.append((range: range, text: storageText))
+            if let attachment = value as? NSTextAttachment {
+                // Check if it's an image attachment - preserve these as-is
+                if attachment.image != nil {
+                    print("   📸 Found image attachment at range \(range) - preserving in storage")
+                    // Don't convert image attachments - keep them in the attributed string
+                    return
                 }
-                // Check if it's a placeholder token (plain text)
-                else if let storageText = String(data: data, encoding: .utf8),
-                        storageText.hasPrefix("{{") && storageText.hasSuffix("}}") {
-                    // This is one of our placeholder tokens
-                    replacements.append((range: range, text: storageText))
+
+                // Process non-image attachments with fileWrapper data
+                if let fileWrapper = attachment.fileWrapper,
+                   let data = fileWrapper.regularFileContents {
+
+                    // Check if it's a JSON attachment (fill-in, date, or time)
+                    if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                       let type = json["type"] as? String {
+
+                        let storageText: String
+
+                        // Handle date/time attachments (no label field)
+                        if type == "date" || type == "time" {
+                            if let format = json["format"] as? String {
+                                // Convert date/time: {{date|format}} or {{time|format}}
+                                storageText = "{{\(type)|\(format)}}"
+                            } else {
+                                return
+                            }
+                        }
+                        // Handle fill-in attachments (have label field)
+                        else if let label = json["label"] as? String {
+                            if type == "fillin_select" {
+                                // Convert select fill-in: {{fillin_select|label|option1,option2|defaultIndex}}
+                                let options = json["options"] as? [String] ?? []
+                                let defaultIndex = json["defaultIndex"] as? Int ?? 0
+                                let optionsString = options.joined(separator: ",")
+                                storageText = "{{\(type)|\(label)|\(optionsString)|\(defaultIndex)}}"
+                            } else if let defaultValue = json["default"] as? String {
+                                // Convert single/multi fill-in: {{fillin_single|label|defaultValue}} or {{fillin_multi|label|defaultValue}}
+                                storageText = "{{\(type)|\(label)|\(defaultValue)}}"
+                            } else {
+                                return
+                            }
+                        } else {
+                            return
+                        }
+                        replacements.append((range: range, text: storageText))
+                    }
+                    // Check if it's a placeholder token (plain text)
+                    else if let storageText = String(data: data, encoding: .utf8),
+                            storageText.hasPrefix("{{") && storageText.hasSuffix("}}") {
+                        // This is one of our placeholder tokens
+                        replacements.append((range: range, text: storageText))
+                    }
                 }
             }
         }
@@ -796,36 +805,94 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
     var attributedString: NSAttributedString? {
         guard isRichText, let data = richTextData else { return nil }
 
-        do {
-            let loadedString = try NSAttributedString(
-                data: data,
-                options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
-                documentAttributes: nil
-            )
+        // Try to load the data, attempting RTFD first (for images), then RTF for backward compatibility
+        var loadedString: NSAttributedString?
 
-            // Convert storage format to display format ({{clipboard}} -> pill)
-            let displayString = XPHelper.convertStorageToDisplay(loadedString)
-            return displayString
-        } catch {
-            print("Error loading rich text data: \(error)")
-            // Fallback to plain text if RTF fails to load
+        // First try RTFD (supports images)
+        if let rtfdString = try? NSAttributedString(
+            data: data,
+            options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtfd],
+            documentAttributes: nil
+        ) {
+            loadedString = rtfdString
+            print("📖 Loaded as RTFD format")
+        }
+        // Fall back to RTF (for older XPs without images)
+        else if let rtfString = try? NSAttributedString(
+            data: data,
+            options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
+            documentAttributes: nil
+        ) {
+            loadedString = rtfString
+            print("📖 Loaded as RTF format (backward compatibility)")
+        }
+        // Last resort: try to load without specifying type
+        else if let anyString = try? NSAttributedString(data: data, options: [:], documentAttributes: nil) {
+            loadedString = anyString
+            print("📖 Loaded with auto-detection")
+        }
+
+        guard let loadedString = loadedString else {
+            print("❌ Failed to load rich text data")
             return NSAttributedString(string: expansion)
         }
+
+        print("📖 Loading rich text data (\(data.count) bytes)")
+        print("   Loaded string length: \(loadedString.length)")
+        print("   Loaded string: \(loadedString.string)")
+
+        // Restore images from fileWrapper data
+        let mutableString = NSMutableAttributedString(attributedString: loadedString)
+        mutableString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: mutableString.length), options: []) { value, range, _ in
+            if let attachment = value as? NSTextAttachment {
+                // If attachment has no image but has fileWrapper with image data, restore it
+                if attachment.image == nil,
+                   let fileWrapper = attachment.fileWrapper,
+                   let imageData = fileWrapper.regularFileContents,
+                   let image = NSImage(data: imageData) {
+                    attachment.image = image
+                    print("   ✓ Restored image from fileWrapper at range \(range), size: \(image.size)")
+                } else if let image = attachment.image {
+                    print("   📎 Found attachment at range \(range) with existing image, size: \(image.size)")
+                } else {
+                    print("   📎 Found attachment at range \(range) - no image data")
+                }
+            }
+        }
+
+        // Fix text color for all non-attachment text (ensure it's not hardcoded black)
+        mutableString.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: mutableString.length), options: []) { value, range, _ in
+            // Check if this range has an attachment - don't modify attachment formatting
+            let hasAttachment = mutableString.attribute(.attachment, at: range.location, effectiveRange: nil) != nil
+            if !hasAttachment {
+                // Replace any foreground color with labelColor for proper dark/light mode support
+                mutableString.addAttribute(.foregroundColor, value: NSColor.labelColor, range: range)
+            }
+        }
+
+        // Convert storage format to display format ({{clipboard}} -> pill)
+        let displayString = XPHelper.convertStorageToDisplay(mutableString)
+        return displayString
     }
 
     // Helper to get plain text preview with placeholders (for sidebar display)
     var previewText: String {
         if isRichText, let data = richTextData {
-            do {
-                let loadedString = try NSAttributedString(
-                    data: data,
-                    options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
-                    documentAttributes: nil
-                )
-
+            // Try RTFD first, then RTF for backward compatibility
+            if let loadedString = try? NSAttributedString(
+                data: data,
+                options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtfd],
+                documentAttributes: nil
+            ) {
                 return loadedString.string
-            } catch {
-                return expansion
+            } else if let loadedString = try? NSAttributedString(
+                data: data,
+                options: [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+            ) {
+                return loadedString.string
+            } else if let loadedString = try? NSAttributedString(data: data, options: [:], documentAttributes: nil) {
+                return loadedString.string
             }
         }
         return expansion
@@ -895,11 +962,12 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         print("   Storage:  \(storageString.string)")
 
         do {
+            // Use RTFD format which properly supports embedded images
             let data = try storageString.data(
                 from: NSRange(location: 0, length: storageString.length),
-                documentAttributes: [NSAttributedString.DocumentAttributeKey.documentType: NSAttributedString.DocumentType.rtf]
+                documentAttributes: [NSAttributedString.DocumentAttributeKey.documentType: NSAttributedString.DocumentType.rtfd]
             )
-            print("   ✓ Created RTF data: \(data.count) bytes")
+            print("   ✓ Created RTFD data: \(data.count) bytes")
             return data
         } catch {
             print("   ✗ Error creating rich text data: \(error)")

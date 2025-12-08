@@ -845,7 +845,7 @@ struct RichTextToolbar: View {
             .help("Insert Link")
 
             // Insert Image
-            Button(action: { insertImage() }) {
+            Button(action: { selectAndInsertImage() }) {
                 Image(systemName: "photo")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
@@ -1486,6 +1486,112 @@ struct RichTextToolbar: View {
         textView.window?.makeFirstResponder(textView)
     }
 
+    private func selectAndInsertImage() {
+        print("🖼️ selectAndInsertImage() called")
+
+        guard let textView = textViewHolder.textView else {
+            print("❌ No textView available")
+            return
+        }
+
+        guard let window = textView.window else {
+            print("❌ No window available")
+            return
+        }
+
+        print("✓ TextView and window available, showing file picker")
+
+        // Create file picker for images
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.png, .jpeg, .gif, .bmp, .tiff, .heic]
+        panel.message = "Select an image to insert"
+
+        print("✓ Panel configured, presenting as sheet")
+
+        // Present the panel as a sheet attached to the window
+        panel.beginSheetModal(for: window) { response in
+            print("✓ Panel callback received with response: \(response)")
+            if response == .OK, let url = panel.url {
+                print("✓ Image selected: \(url.path)")
+                self.insertImage(from: url)
+            } else {
+                print("❌ Panel cancelled or no URL")
+            }
+        }
+    }
+
+    private func insertImage(from url: URL) {
+        guard let textView = textViewHolder.textView,
+              let imageData = try? Data(contentsOf: url),
+              let image = NSImage(data: imageData) else {
+            print("❌ Failed to load image from \(url)")
+            return
+        }
+
+        print("📸 Inserting image from \(url.lastPathComponent)")
+        print("   Original size: \(image.size.width) x \(image.size.height)")
+
+        let range = textView.selectedRange()
+
+        // Scale image to fit nicely in the text editor (max 200 points wide/tall)
+        let maxWidth: CGFloat = 200
+        let maxHeight: CGFloat = 200
+
+        // Calculate scale to fit within both width and height constraints
+        let widthScale = maxWidth / image.size.width
+        let heightScale = maxHeight / image.size.height
+        let scale = min(1.0, min(widthScale, heightScale))
+
+        let newSize = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        print("   Scaled size: \(newSize.width) x \(newSize.height) (scale: \(scale))")
+
+        // Create a new scaled image with proper representation
+        let scaledImage = NSImage(size: newSize)
+        scaledImage.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: newSize), from: NSRect(origin: .zero, size: image.size), operation: .copy, fraction: 1.0)
+        scaledImage.unlockFocus()
+
+        // Make sure the image has a proper representation
+        if let tiffData = scaledImage.tiffRepresentation,
+           let bitmapImage = NSBitmapImageRep(data: tiffData) {
+            scaledImage.addRepresentation(bitmapImage)
+        }
+
+        // Create image attachment with the scaled image
+        let attachment = NSTextAttachment()
+        attachment.image = scaledImage
+        attachment.bounds = NSRect(origin: .zero, size: newSize)
+
+        print("   ✓ Created attachment with image: \(attachment.image != nil)")
+        print("   ✓ Image size: \(attachment.image?.size ?? .zero)")
+
+        // Create attributed string with the attachment
+        let attachmentString = NSAttributedString(attachment: attachment)
+
+        // Insert the image
+        if textView.shouldChangeText(in: range, replacementString: attachmentString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: attachmentString)
+            textView.didChangeText()
+
+            // Move cursor after the image
+            let newLocation = range.location + attachmentString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        textView.window?.makeFirstResponder(textView)
+    }
+
     enum FillInType {
         case single
         case multi
@@ -1696,11 +1802,6 @@ struct RichTextToolbar: View {
         // Clear editing range
         editingSelectFillInRange = nil
         textView.window?.makeFirstResponder(textView)
-    }
-
-    private func insertImage() {
-        // TODO: Implement image insertion
-        print("Insert Image clicked")
     }
 
 }
