@@ -4,10 +4,17 @@ import Combine
 class XPManager: ObservableObject {
     static let shared = XPManager()
 
+    enum ViewFilter {
+        case all
+        case xpsOnly
+        case variablesOnly
+    }
+
     @Published var xps: [XP] = []
     @Published var searchText: String = ""
     @Published var selectedTags: Set<String> = []
     @Published var selectedFolder: String? = nil
+    @Published var viewFilter: ViewFilter = .xpsOnly
     @Published var progress: XPProgress = XPProgress()
 
     private let storageURL: URL
@@ -28,7 +35,18 @@ class XPManager: ObservableObject {
             let matchesFolder = selectedFolder == nil ||
                 xp.folder == selectedFolder
 
-            return matchesSearch && matchesTags && matchesFolder
+            let matchesViewFilter: Bool = {
+                switch viewFilter {
+                case .all:
+                    return true
+                case .xpsOnly:
+                    return !xp.isVariable
+                case .variablesOnly:
+                    return xp.isVariable
+                }
+            }()
+
+            return matchesSearch && matchesTags && matchesFolder && matchesViewFilter
         }
     }
 
@@ -40,6 +58,37 @@ class XPManager: ObservableObject {
     var allFolders: [String] {
         let folderSet = Set(xps.compactMap { $0.folder })
         return Array(folderSet).sorted()
+    }
+
+    // MARK: - Variables
+
+    /// All XPs that are variables (keyword starts with %)
+    var allVariables: [XP] {
+        xps.filter { $0.isVariable }
+    }
+
+    /// All XPs that are regular XPs (not variables)
+    var allRegularXPs: [XP] {
+        xps.filter { !$0.isVariable }
+    }
+
+    /// Find a variable by its keyword (including % prefix)
+    func findVariable(byKeyword keyword: String) -> XP? {
+        allVariables.first { $0.keyword.lowercased() == keyword.lowercased() }
+    }
+
+    /// Find all XPs that reference a given variable
+    func findReferences(toVariable variable: XP) -> [XP] {
+        guard variable.isVariable else { return [] }
+        let variableKeyword = variable.keyword
+
+        return xps.filter { xp in
+            // Don't include the variable itself
+            guard xp.id != variable.id else { return false }
+
+            // Check if expansion contains the variable keyword
+            return xp.expansion.contains(variableKeyword)
+        }
     }
 
     var conflictingKeywords: [String: [XP]] {

@@ -22,6 +22,11 @@ struct TimeClickData: Equatable {
     let format: String
 }
 
+struct VariableClickData: Equatable {
+    let index: Int
+    let variableKeyword: String
+}
+
 struct RichTextEditorWithToolbar: View {
     @Binding var attributedString: NSAttributedString
     @StateObject private var textViewHolder = RichTextViewHolder()
@@ -29,17 +34,19 @@ struct RichTextEditorWithToolbar: View {
     @State private var fillInClickedData: FillInClickData? = nil
     @State private var dateClickedData: DateClickData? = nil
     @State private var timeClickedData: TimeClickData? = nil
+    @State private var variableClickedData: VariableClickData? = nil
 
     var body: some View {
         VStack(spacing: 0) {
-            RichTextToolbar(textViewHolder: textViewHolder, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData, dateClickedData: $dateClickedData, timeClickedData: $timeClickedData)
+            RichTextToolbar(textViewHolder: textViewHolder, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData, dateClickedData: $dateClickedData, timeClickedData: $timeClickedData, variableClickedData: $variableClickedData)
             RichTextEditor(
                 attributedString: $attributedString,
                 textViewHolder: textViewHolder,
                 linkClickedAt: $linkClickedAt,
                 fillInClickedData: $fillInClickedData,
                 dateClickedData: $dateClickedData,
-                timeClickedData: $timeClickedData
+                timeClickedData: $timeClickedData,
+                variableClickedData: $variableClickedData
             )
                 .border(Color.secondary.opacity(0.2))
         }
@@ -83,6 +90,9 @@ class XpandaTextView: NSTextView {
 
     // Callback for time attachment clicks
     var onTimeClicked: ((Int, String) -> Void)?
+
+    // Callback for variable attachment clicks
+    var onVariableClicked: ((Int, String) -> Void)?
 
     // Override to handle keyboard shortcuts
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -271,6 +281,12 @@ class XpandaTextView: NSTextView {
             return
         }
 
+        // Check if clicking on a variable pill
+        if let (charIndex, keyword) = getVariablePillAtPoint(point) {
+            onVariableClicked?(charIndex, keyword)
+            return
+        }
+
         // Check if clicking on a fill-in pill using the same logic as cursor detection
         if let (charIndex, label, defaultValue, isMultiLine, isSelect, options, defaultIndex) = getFillInPillAtPoint(point) {
             onFillInClicked?(charIndex, label, defaultValue, isMultiLine, isSelect, options, defaultIndex)
@@ -455,6 +471,57 @@ class XpandaTextView: NSTextView {
 
         return nil
     }
+
+    // Helper to get variable pill data at a point
+    private func getVariablePillAtPoint(_ point: NSPoint) -> (charIndex: Int, keyword: String)? {
+        guard let layoutManager = layoutManager,
+              let textContainer = textContainer,
+              let storage = textStorage else {
+            return nil
+        }
+
+        // Convert point to text container coordinates
+        let containerPoint = NSPoint(
+            x: point.x - textContainerInset.width,
+            y: point.y - textContainerInset.height
+        )
+
+        // Get the glyph index at this point
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer, fractionOfDistanceThroughGlyph: nil)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+
+        // Get the character index for this glyph
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length else { return nil }
+
+        // Check if this character has a variable attachment
+        if let attachment = storage.attribute(.attachment, at: charIndex, effectiveRange: nil) as? NSTextAttachment,
+           let fileWrapper = attachment.fileWrapper,
+           let data = fileWrapper.regularFileContents,
+           let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+           let type = json["type"] as? String,
+           type == "variable",
+           let keyword = json["keyword"] as? String {
+
+            // Get the bounding rect for this glyph
+            let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+
+            // Adjust for text container insets
+            let adjustedRect = NSRect(
+                x: glyphRect.origin.x + textContainerInset.width,
+                y: glyphRect.origin.y + textContainerInset.height,
+                width: glyphRect.width,
+                height: glyphRect.height
+            )
+
+            // Check if point is within the glyph bounds
+            if adjustedRect.contains(point) {
+                return (charIndex, keyword)
+            }
+        }
+
+        return nil
+    }
 }
 
 struct RichTextEditor: NSViewRepresentable {
@@ -464,6 +531,7 @@ struct RichTextEditor: NSViewRepresentable {
     @Binding var fillInClickedData: FillInClickData?
     @Binding var dateClickedData: DateClickData?
     @Binding var timeClickedData: TimeClickData?
+    @Binding var variableClickedData: VariableClickData?
     var isEditable: Bool = true
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -538,6 +606,11 @@ struct RichTextEditor: NSViewRepresentable {
             coordinator.handleTimeClick(at: charIndex, format: format)
         }
 
+        // Set up variable click handler
+        textView.onVariableClicked = { charIndex, keyword in
+            coordinator.handleVariableClick(at: charIndex, keyword: keyword)
+        }
+
         // Store reference to textView
         DispatchQueue.main.async {
             textViewHolder.textView = textView
@@ -609,6 +682,10 @@ struct RichTextEditor: NSViewRepresentable {
             parent.timeClickedData = TimeClickData(index: index, format: format)
         }
 
+        func handleVariableClick(at index: Int, keyword: String) {
+            parent.variableClickedData = VariableClickData(index: index, variableKeyword: keyword)
+        }
+
         // Fix typing attributes when selection changes (e.g., after moving cursor past an attachment)
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
@@ -656,6 +733,7 @@ struct RichTextToolbar: View {
     @Binding var fillInClickedData: FillInClickData?
     @Binding var dateClickedData: DateClickData?
     @Binding var timeClickedData: TimeClickData?
+    @Binding var variableClickedData: VariableClickData?
     @State private var isBoldActive = false
     @State private var isItalicActive = false
     @State private var isUnderlineActive = false
@@ -857,6 +935,32 @@ struct RichTextToolbar: View {
             .cornerRadius(6)
             .help("Insert Image")
 
+            // Insert Variable
+            Menu {
+                let variables = XPManager.shared.allVariables
+                if variables.isEmpty {
+                    Text("No variables available")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(variables, id: \.id) { variable in
+                        Button(variable.keyword) {
+                            insertVariable(variableKeyword: variable.keyword)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "function")
+                    .font(.system(size: 15))
+                    .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
+                    .frame(width: 44, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Insert Variable")
+
             Spacer()
         }
         .padding(.horizontal, 8)
@@ -954,6 +1058,26 @@ struct RichTextToolbar: View {
 
             // Reset the trigger
             timeClickedData = nil
+        }
+        .onChange(of: variableClickedData) { clickedData in
+            guard let data = clickedData,
+                  let textView = textViewHolder.textView,
+                  let storage = textView.textStorage else { return }
+
+            // When a variable is clicked, we want to allow the user to change it
+            // We'll replace the variable pill at this position with a new one
+            let charIndex = data.index
+            if charIndex < storage.length {
+                // For now, we'll just log it. The user can delete and re-insert if they want to change it.
+                // In a future enhancement, we could show a context menu to select a different variable
+                print("Variable clicked: \(data.variableKeyword) at index \(charIndex)")
+
+                // Could show a menu here to select a different variable and replace it
+                // For now, user can delete the pill and insert a new one
+            }
+
+            // Reset the trigger
+            variableClickedData = nil
         }
         .sheet(isPresented: $showingLinkDialog) {
             LinkInputDialog(
@@ -1475,6 +1599,35 @@ struct RichTextToolbar: View {
             textView.setSelectedRange(NSRange(location: newLocation, length: 0))
 
             // Ensure typing attributes are reset to default
+            DispatchQueue.main.async {
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+            }
+        }
+
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    private func insertVariable(variableKeyword: String) {
+        guard let textView = textViewHolder.textView else { return }
+
+        let range = textView.selectedRange()
+
+        // Create variable pill
+        let pillString = PlaceholderPillRenderer.createVariableDisplayString(variableKeyword: variableKeyword)
+
+        // Insert the pill
+        if textView.shouldChangeText(in: range, replacementString: pillString.string) {
+            textView.textStorage?.replaceCharacters(in: range, with: pillString)
+            textView.didChangeText()
+
+            // Move cursor after the pill
+            let newLocation = range.location + pillString.length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+
+            // Reset typing attributes to default
             DispatchQueue.main.async {
                 textView.typingAttributes = [
                     .font: NSFont.systemFont(ofSize: 13),

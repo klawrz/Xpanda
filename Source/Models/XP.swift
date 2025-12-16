@@ -117,6 +117,65 @@ class PlaceholderPillAttachmentCell: NSTextAttachmentCell {
 }
 
 // Custom attachment cell for fill-in pills
+// Custom attachment cell for variable pills
+class VariablePillAttachmentCell: NSTextAttachmentCell {
+    let variableKeyword: String
+
+    init(variableKeyword: String) {
+        self.variableKeyword = variableKeyword
+        super.init()
+    }
+
+    required init(coder: NSCoder) {
+        self.variableKeyword = ""
+        super.init(coder: coder)
+    }
+
+    override func cellSize() -> NSSize {
+        // Display variable name with % prefix
+        let displayName = variableKeyword
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0)
+        ]
+        let textSize = displayName.size(withAttributes: attrs)
+        return NSSize(width: textSize.width + 12, height: 18)
+    }
+
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        // Draw rounded rectangle pill
+        let path = NSBezierPath(roundedRect: cellFrame, xRadius: 3, yRadius: 3)
+
+        // Fill with light green background
+        NSColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 0.15).setFill()
+        path.fill()
+
+        // Draw green border
+        NSColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 0.5).setStroke()
+        path.lineWidth = 1.0
+        path.stroke()
+
+        // Draw variable name with % prefix
+        let displayName = variableKeyword
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0)
+        ]
+        let textSize = displayName.size(withAttributes: attrs)
+        let textRect = NSRect(
+            x: cellFrame.origin.x + (cellFrame.width - textSize.width) / 2,
+            y: cellFrame.origin.y + (cellFrame.height - textSize.height) / 2 + 1,
+            width: textSize.width,
+            height: textSize.height
+        )
+        displayName.draw(in: textRect, withAttributes: attrs)
+    }
+
+    override func cellBaselineOffset() -> NSPoint {
+        return NSPoint(x: 0, y: -3)
+    }
+}
+
 class FillInPillAttachmentCell: NSTextAttachmentCell {
     let label: String
     let defaultValue: String
@@ -550,6 +609,28 @@ class PlaceholderPillRenderer {
 
         return NSAttributedString(attachment: attachment)
     }
+
+    // Create a variable pill with variable keyword
+    static func createVariableDisplayString(variableKeyword: String) -> NSAttributedString {
+        let attachment = NSTextAttachment()
+
+        // Use custom cell for rendering
+        attachment.attachmentCell = VariablePillAttachmentCell(variableKeyword: variableKeyword)
+
+        // Store the variable keyword as JSON in the attachment
+        let variableData: [String: String] = [
+            "type": "variable",
+            "keyword": variableKeyword
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: variableData, options: []) {
+            let wrapper = FileWrapper(regularFileWithContents: jsonData)
+            wrapper.preferredFilename = "variable.json"
+            attachment.fileWrapper = wrapper
+        }
+
+        return NSAttributedString(attachment: attachment)
+    }
 }
 
 // Helper class for converting between storage and display formats
@@ -668,6 +749,20 @@ class XPHelper {
             }
         }
 
+        // Pattern: {{variable|%keyword}}
+        let variablePattern = "\\{\\{variable\\|([^}]*)\\}\\}"
+        if let regex = try? NSRegularExpression(pattern: variablePattern, options: []) {
+            let nsText5 = mutableString.string as NSString
+            let matches = regex.matches(in: mutableString.string, options: [], range: NSRange(location: 0, length: nsText5.length))
+            for match in matches.reversed() {
+                let keywordRange = match.range(at: 1)
+                let keyword = nsText5.substring(with: keywordRange)
+
+                let pillString = PlaceholderPillRenderer.createVariableDisplayString(variableKeyword: keyword)
+                mutableString.replaceCharacters(in: match.range, with: pillString)
+            }
+        }
+
         return mutableString
     }
 
@@ -703,6 +798,15 @@ class XPHelper {
                             if let format = json["format"] as? String {
                                 // Convert date/time: {{date|format}} or {{time|format}}
                                 storageText = "{{\(type)|\(format)}}"
+                            } else {
+                                return
+                            }
+                        }
+                        // Handle variable attachments
+                        else if type == "variable" {
+                            if let keyword = json["keyword"] as? String {
+                                // Convert variable: {{variable|%keyword}}
+                                storageText = "{{variable|\(keyword)}}"
                             } else {
                                 return
                             }
@@ -753,6 +857,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
     var isRichText: Bool
     var richTextData: Data? // Stores RTF data when isRichText is true
     var outputPlainText: Bool = false // If true, strip formatting when expanding (for JSON, code, etc.)
+    var isVariable: Bool = false // If true, this is a reusable variable (keyword must start with %)
     var tags: [String]
     var folder: String?
     var dateCreated: Date
@@ -760,7 +865,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
 
     // Custom decoding to handle backward compatibility
     enum CodingKeys: String, CodingKey {
-        case id, keyword, expansion, isRichText, richTextData, outputPlainText, tags, folder, dateCreated, dateModified
+        case id, keyword, expansion, isRichText, richTextData, outputPlainText, isVariable, tags, folder, dateCreated, dateModified
     }
 
     init(from decoder: Decoder) throws {
@@ -771,6 +876,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         isRichText = try container.decode(Bool.self, forKey: .isRichText)
         richTextData = try container.decodeIfPresent(Data.self, forKey: .richTextData)
         outputPlainText = try container.decodeIfPresent(Bool.self, forKey: .outputPlainText) ?? false
+        isVariable = try container.decodeIfPresent(Bool.self, forKey: .isVariable) ?? false
         tags = try container.decode([String].self, forKey: .tags)
         folder = try container.decodeIfPresent(String.self, forKey: .folder)
         dateCreated = try container.decode(Date.self, forKey: .dateCreated)
@@ -784,6 +890,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         isRichText: Bool = false,
         richTextData: Data? = nil,
         outputPlainText: Bool = false,
+        isVariable: Bool = false,
         tags: [String] = [],
         folder: String? = nil,
         dateCreated: Date = Date(),
@@ -795,6 +902,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         self.isRichText = isRichText
         self.richTextData = richTextData
         self.outputPlainText = outputPlainText
+        self.isVariable = isVariable
         self.tags = tags
         self.folder = folder
         self.dateCreated = dateCreated
@@ -986,6 +1094,35 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+    }
+
+    // MARK: - Variable Validation
+
+    /// Check if keyword is valid for a variable (starts with % and contains only alphanumeric characters)
+    static func isValidVariableKeyword(_ keyword: String) -> Bool {
+        guard keyword.hasPrefix("%") else { return false }
+        let name = String(keyword.dropFirst()) // Remove % prefix
+        guard !name.isEmpty else { return false }
+
+        // Only allow letters, numbers, and underscores (no spaces)
+        let validCharacterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_"))
+        return name.unicodeScalars.allSatisfy { validCharacterSet.contains($0) }
+    }
+
+    /// Get the variable name without the % prefix
+    var variableName: String? {
+        guard isVariable, keyword.hasPrefix("%") else { return nil }
+        return String(keyword.dropFirst())
+    }
+
+    /// Check if this XP's keyword or expansion conflicts with variable rules
+    var hasValidKeywordForType: Bool {
+        if isVariable {
+            return XP.isValidVariableKeyword(keyword)
+        } else {
+            // Regular XPs should NOT start with %
+            return !keyword.hasPrefix("%")
+        }
     }
 }
 

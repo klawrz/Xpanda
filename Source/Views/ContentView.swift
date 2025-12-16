@@ -17,11 +17,59 @@ struct ContentView: View {
                 SearchBar(text: $xpManager.searchText)
                     .padding()
 
-                // Filter section
+                // Filter section (folders/tags)
                 if !xpManager.allTags.isEmpty || !xpManager.allFolders.isEmpty {
                     FilterSidebar()
                         .padding(.horizontal)
+                        .padding(.bottom, 8)
                 }
+
+                // XP/Variable Filter Tabs
+                HStack(spacing: 0) {
+                    // XPs Tab with inline + button
+                    Button(action: { xpManager.viewFilter = .xpsOnly }) {
+                        HStack(spacing: 4) {
+                            Text("XPs")
+                            Spacer()
+                            if xpManager.viewFilter == .xpsOnly {
+                                Button(action: { addNewXP(isVariable: false) }) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 12))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal, 8)
+                        .background(xpManager.viewFilter == .xpsOnly ? Color.gray.opacity(0.2) : Color.clear)
+                        .foregroundColor(xpManager.viewFilter == .xpsOnly ? .primary : .secondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    // Variables Tab with inline + button
+                    Button(action: { xpManager.viewFilter = .variablesOnly }) {
+                        HStack(spacing: 4) {
+                            Text("Variables")
+                            Spacer()
+                            if xpManager.viewFilter == .variablesOnly {
+                                Button(action: { addNewXP(isVariable: true) }) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 12))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal, 8)
+                        .background(xpManager.viewFilter == .variablesOnly ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.2) : Color.clear)
+                        .foregroundColor(xpManager.viewFilter == .variablesOnly ? Color(red: 0.3, green: 0.8, blue: 0.4) : .secondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(height: 32)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
 
                 Divider()
 
@@ -43,6 +91,11 @@ struct ContentView: View {
                         }
                     }
                     .listStyle(.sidebar)
+                    .scrollContentBackground(xpManager.viewFilter == .variablesOnly ? .hidden : .visible)
+                    .background(xpManager.viewFilter == .variablesOnly ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.1) : Color.clear)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        Color.clear.frame(height: 8)
+                    }
                     .id(xpManager.xps.map { "\($0.id)-\($0.keyword)-\($0.dateModified)" }.joined())
                     .onChange(of: scrollToNewXP) { xpID in
                         // Only scroll when a new XP is created
@@ -68,10 +121,6 @@ struct ContentView: View {
                                 Label("View Conflicts", systemImage: "exclamationmark.triangle.fill")
                                     .foregroundColor(.orange)
                             }
-                        }
-
-                        Button(action: { addNewXP() }) {
-                            Label("Add XP", systemImage: "plus")
                         }
                     }
                 }
@@ -159,12 +208,13 @@ struct ContentView: View {
         }
     }
 
-    private func addNewXP() {
-        // Create a blank XP
+    private func addNewXP(isVariable: Bool) {
+        // Create a blank XP or Variable
         let newXP = XP(
-            keyword: "",
+            keyword: isVariable ? "%" : "",
             expansion: "",
             isRichText: false,
+            isVariable: isVariable,
             tags: [],
             folder: nil
         )
@@ -210,6 +260,14 @@ struct XPListRow: View {
 
     var body: some View {
         HStack {
+            // Variable icon indicator
+            if xp.isVariable {
+                Image(systemName: "function")
+                    .font(.caption)
+                    .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
+                    .frame(width: 20)
+            }
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(xp.keyword.isEmpty ? "(Untitled)" : xp.keyword)
@@ -223,10 +281,18 @@ struct XPListRow: View {
                     }
                 }
 
-                PreviewWithPills(text: xp.previewText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                if xp.previewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("(No content)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .italic()
+                        .lineLimit(1)
+                } else {
+                    PreviewWithPills(text: xp.previewText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
 
                 if !xp.tags.isEmpty {
                     HStack(spacing: 4) {
@@ -388,10 +454,10 @@ struct PreviewWithPills: View {
                 if component.isPlaceholder {
                     Text(component.displayText)
                         .font(.caption2)
-                        .foregroundColor(.gray)
+                        .foregroundColor(component.isVariable ? Color(red: 0.3, green: 0.8, blue: 0.4) : .gray)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
-                        .background(Color.gray.opacity(0.2))
+                        .background(component.isVariable ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.2) : Color.gray.opacity(0.2))
                         .cornerRadius(3)
                 } else {
                     Text(component.text)
@@ -438,6 +504,43 @@ struct PreviewWithPills: View {
                 }
             }
 
+            // Check if text starts with a date token (pattern: {{date|format}})
+            if remainingText.hasPrefix("{{date|") {
+                if let endRange = remainingText.range(of: "}}") {
+                    let tokenLength = remainingText.distance(from: remainingText.startIndex, to: endRange.upperBound)
+                    let fullToken = String(remainingText.prefix(tokenLength))
+                    result.append(TextComponent(text: fullToken, displayText: "date", isPlaceholder: true))
+                    remainingText.removeFirst(tokenLength)
+                    continue
+                }
+            }
+
+            // Check if text starts with a time token (pattern: {{time|format}})
+            if remainingText.hasPrefix("{{time|") {
+                if let endRange = remainingText.range(of: "}}") {
+                    let tokenLength = remainingText.distance(from: remainingText.startIndex, to: endRange.upperBound)
+                    let fullToken = String(remainingText.prefix(tokenLength))
+                    result.append(TextComponent(text: fullToken, displayText: "time", isPlaceholder: true))
+                    remainingText.removeFirst(tokenLength)
+                    continue
+                }
+            }
+
+            // Check if text starts with a variable token (pattern: {{variable|%keyword}})
+            if remainingText.hasPrefix("{{variable|") {
+                if let endRange = remainingText.range(of: "}}") {
+                    let tokenLength = remainingText.distance(from: remainingText.startIndex, to: endRange.upperBound)
+                    let fullToken = String(remainingText.prefix(tokenLength))
+                    // Extract the keyword from {{variable|%keyword}}
+                    let keyword = fullToken
+                        .replacingOccurrences(of: "{{variable|", with: "")
+                        .replacingOccurrences(of: "}}", with: "")
+                    result.append(TextComponent(text: fullToken, displayText: keyword, isPlaceholder: true, isVariable: true))
+                    remainingText.removeFirst(tokenLength)
+                    continue
+                }
+            }
+
             // Check if text starts with a placeholder token
             var foundToken = false
             for token in PlaceholderToken.allCases {
@@ -471,6 +574,24 @@ struct PreviewWithPills: View {
                     nextTokenIndex = min(nextTokenIndex, index)
                 }
 
+                // Check for date token
+                if let range = remainingText.range(of: "{{date|") {
+                    let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
+                    nextTokenIndex = min(nextTokenIndex, index)
+                }
+
+                // Check for time token
+                if let range = remainingText.range(of: "{{time|") {
+                    let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
+                    nextTokenIndex = min(nextTokenIndex, index)
+                }
+
+                // Check for variable token
+                if let range = remainingText.range(of: "{{variable|") {
+                    let index = remainingText.distance(from: remainingText.startIndex, to: range.lowerBound)
+                    nextTokenIndex = min(nextTokenIndex, index)
+                }
+
                 // Check for placeholder tokens
                 for token in PlaceholderToken.allCases {
                     if let range = remainingText.range(of: token.storageText) {
@@ -494,5 +615,6 @@ struct PreviewWithPills: View {
         let text: String
         let displayText: String
         let isPlaceholder: Bool
+        var isVariable: Bool = false
     }
 }

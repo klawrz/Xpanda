@@ -536,12 +536,76 @@ class ExpansionEngine {
 
     // MARK: - Placeholder Replacement
 
+    private func expandVariables(in text: String, visited: Set<String> = []) -> String {
+        var result = text
+
+        // Pattern to match {{variable|%keyword}} storage format
+        let pattern = "\\{\\{variable\\|(%[a-zA-Z0-9_]+)\\}\\}"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return result
+        }
+
+        let nsText = result as NSString
+        let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: nsText.length))
+
+        // Process matches in reverse order to maintain correct indices
+        for match in matches.reversed() {
+            let fullRange = match.range
+            let keywordRange = match.range(at: 1)
+            let fullKeyword = nsText.substring(with: keywordRange)
+
+            // Check for circular reference
+            if visited.contains(fullKeyword.lowercased()) {
+                print("⚠️  Circular reference detected: \(fullKeyword)")
+                // Replace with error message
+                result = (result as NSString).replacingCharacters(in: fullRange, with: "[Circular Reference: \(fullKeyword)]")
+                continue
+            }
+
+            // Look up the variable
+            if let variable = XPManager.shared.findVariable(byKeyword: fullKeyword) {
+                print("✓ Found variable: \(fullKeyword)")
+
+                // Add to visited set for circular reference detection
+                var newVisited = visited
+                newVisited.insert(fullKeyword.lowercased())
+
+                // Get the variable's expansion text
+                let variableExpansion: String
+                if variable.isRichText, let data = variable.richTextData {
+                    // Convert rich text to plain text for expansion
+                    if let attrStr = try? NSAttributedString(data: data, options: [:], documentAttributes: nil) {
+                        variableExpansion = attrStr.string
+                    } else {
+                        variableExpansion = variable.expansion
+                    }
+                } else {
+                    variableExpansion = variable.expansion
+                }
+
+                // Recursively expand variables in the variable's expansion
+                let expandedContent = expandVariables(in: variableExpansion, visited: newVisited)
+
+                // Replace the variable reference with its expanded content
+                result = (result as NSString).replacingCharacters(in: fullRange, with: expandedContent)
+            } else {
+                print("⚠️  Variable not found: \(fullKeyword)")
+                // Leave the variable reference as-is if not found
+            }
+        }
+
+        return result
+    }
+
     private func replacePlaceholders(in text: String, clipboardContent: String, fillInValues: [String: String]) -> (text: String, cursorOffset: Int?) {
         var result = text
         var cursorOffset: Int? = nil
 
         print("🔍 Processing plain text for placeholder replacement")
         print("   Text: \(text)")
+
+        // First, expand any variables
+        result = expandVariables(in: result)
 
         // Find cursor position before removing it
         if let cursorRange = result.range(of: PlaceholderToken.cursor.storageText) {
@@ -694,8 +758,78 @@ class ExpansionEngine {
         return (result, cursorOffset)
     }
 
-    private func replacePlaceholders(in attributedString: NSAttributedString, clipboardContent: String, fillInValues: [String: String]) -> (attributedString: NSAttributedString, cursorOffset: Int?) {
+    private func expandVariables(in attributedString: NSAttributedString, visited: Set<String> = []) -> NSAttributedString {
         let mutableString = NSMutableAttributedString(attributedString: attributedString)
+        let fullRange = NSRange(location: 0, length: mutableString.length)
+
+        var replacements: [(range: NSRange, content: NSAttributedString)] = []
+
+        // Find all variable attachments
+        mutableString.enumerateAttribute(.attachment, in: fullRange, options: [.reverse]) { value, range, _ in
+            if let attachment = value as? NSTextAttachment,
+               let fileWrapper = attachment.fileWrapper,
+               let data = fileWrapper.regularFileContents,
+               let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let type = json["type"] as? String,
+               type == "variable",
+               let keyword = json["keyword"] as? String {
+
+                // Check for circular reference
+                if visited.contains(keyword.lowercased()) {
+                    print("⚠️  Circular reference detected: \(keyword)")
+                    // Replace with error message, preserving formatting
+                    var attributes: [NSAttributedString.Key: Any] = [:]
+                    if range.location < mutableString.length {
+                        attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
+                    }
+                    let replacement = NSAttributedString(string: "[Circular Reference: \(keyword)]", attributes: attributes)
+                    replacements.append((range: range, content: replacement))
+                    return
+                }
+
+                // Look up the variable
+                if let variable = XPManager.shared.findVariable(byKeyword: keyword) {
+                    print("✓ Found variable: \(keyword)")
+
+                    // Add to visited set for circular reference detection
+                    var newVisited = visited
+                    newVisited.insert(keyword.lowercased())
+
+                    // Get the variable's content as attributed string
+                    let variableContent: NSAttributedString
+                    if variable.isRichText, let attrStr = variable.attributedString {
+                        // Recursively expand variables in the attributed string
+                        variableContent = expandVariables(in: attrStr, visited: newVisited)
+                    } else {
+                        // Plain text - expand variables then create attributed string
+                        let expandedText = expandVariables(in: variable.expansion, visited: newVisited)
+                        // Preserve the formatting at the replacement location
+                        var attributes: [NSAttributedString.Key: Any] = [:]
+                        if range.location < mutableString.length {
+                            attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
+                        }
+                        variableContent = NSAttributedString(string: expandedText, attributes: attributes)
+                    }
+
+                    replacements.append((range: range, content: variableContent))
+                } else {
+                    print("⚠️  Variable not found: \(keyword)")
+                }
+            }
+        }
+
+        // Apply replacements in reverse order
+        for replacement in replacements.sorted(by: { $0.range.location > $1.range.location }) {
+            mutableString.replaceCharacters(in: replacement.range, with: replacement.content)
+        }
+
+        return mutableString
+    }
+
+    private func replacePlaceholders(in attributedString: NSAttributedString, clipboardContent: String, fillInValues: [String: String]) -> (attributedString: NSAttributedString, cursorOffset: Int?) {
+        // First, expand any variables
+        let expandedString = expandVariables(in: attributedString)
+        let mutableString = NSMutableAttributedString(attributedString: expandedString)
         let fullRange = NSRange(location: 0, length: mutableString.length)
         var cursorOffset: Int? = nil
 
@@ -1094,6 +1228,9 @@ class ExpansionEngine {
         panel.title = "Fill in values"
         panel.minSize = NSSize(width: 400, height: 300)
         panel.center()
+
+        // Play system bell sound
+        NSSound.beep()
 
         // Create main container with flipped coordinates
         let containerView = FlippedView(frame: panel.contentView!.bounds)

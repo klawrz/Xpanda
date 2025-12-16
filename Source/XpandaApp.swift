@@ -9,7 +9,7 @@ struct XpandaApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(xpManager)
-                .frame(minWidth: 800, minHeight: 600)
+                .frame(minWidth: 900, minHeight: 600)
         }
         .commands {
             CommandGroup(replacing: .newItem) { }

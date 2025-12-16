@@ -10,6 +10,7 @@ struct XPDetailView: View {
     @State private var tags: [String]
     @State private var folder: String
     @State private var newTag: String = ""
+    @State private var showingReferences = false
 
     @State private var saveTask: Task<Void, Never>?
 
@@ -60,7 +61,31 @@ struct XPDetailView: View {
                         .textCase(.uppercase)
 
                     HStack {
-                        TextField("Keyword", text: $keyword)
+                        // Show % prefix as non-editable for variables
+                        if xp.isVariable {
+                            Text("%")
+                                .font(.title)
+                                .bold()
+                                .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
+                        }
+
+                        TextField("Keyword", text: Binding(
+                            get: {
+                                // Remove % prefix for display if it's a variable
+                                if xp.isVariable && keyword.hasPrefix("%") {
+                                    return String(keyword.dropFirst())
+                                }
+                                return keyword
+                            },
+                            set: { newValue in
+                                // Add % prefix back when saving if it's a variable
+                                if xp.isVariable {
+                                    keyword = "%" + newValue
+                                } else {
+                                    keyword = newValue
+                                }
+                            }
+                        ))
                             .textFieldStyle(.plain)
                             .font(.title)
                             .bold()
@@ -75,6 +100,20 @@ struct XPDetailView: View {
                     .padding(12)
                     .background(Color(NSColor.controlBackgroundColor))
                     .cornerRadius(8)
+
+                    // Show variable indicator if keyword starts with %
+                    if keyword.hasPrefix("%") {
+                        HStack(alignment: .top, spacing: 4) {
+                            Image(systemName: "function")
+                                .font(.caption)
+                                .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
+                            Text("This is a Variable. Variable keywords are automatically preceded with %.")
+                                .font(.caption)
+                                .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 4)
+                    }
                 }
 
                 Divider()
@@ -187,6 +226,57 @@ struct XPDetailView: View {
                     }
                 }
 
+                // Variable Usage Section (only for variables)
+                if xp.isVariable {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Usage")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        let references = xpManager.findReferences(toVariable: xp)
+
+                        if references.isEmpty {
+                            Text("Not used in any XPs")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        } else {
+                            HStack {
+                                Text("Used in \(references.count) XP\(references.count == 1 ? "" : "s")")
+                                    .font(.callout)
+                                    .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
+
+                                Button(action: { showingReferences.toggle() }) {
+                                    Image(systemName: showingReferences ? "chevron.up" : "chevron.down")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            if showingReferences {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    ForEach(references, id: \.id) { referencingXP in
+                                        HStack {
+                                            Text("• \(referencingXP.keyword)")
+                                                .font(.callout)
+                                                .foregroundColor(.primary)
+                                            Spacer()
+                                        }
+                                        .padding(.vertical, 4)
+                                        .padding(.horizontal, 8)
+                                        .background(Color(NSColor.controlBackgroundColor))
+                                        .cornerRadius(4)
+                                    }
+                                }
+                                .padding(.top, 4)
+                            }
+                        }
+                    }
+                }
+
                 Divider()
 
                 // Metadata
@@ -214,6 +304,7 @@ struct XPDetailView: View {
             .padding(24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(xp.isVariable ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.08) : Color.clear)
     }
 
     private var isValid: Bool {
@@ -260,12 +351,16 @@ struct XPDetailView: View {
         let expansionText = richTextAttributedString.string
         let richTextData = XP.makeRichTextData(from: richTextAttributedString)
 
+        // Auto-detect if this is a variable based on % prefix
+        let isVariable = trimmedKeyword.hasPrefix("%")
+
         var updatedXP = xp
         updatedXP.keyword = trimmedKeyword
         updatedXP.expansion = expansionText
         updatedXP.isRichText = true
         updatedXP.richTextData = richTextData
         updatedXP.outputPlainText = outputPlainText
+        updatedXP.isVariable = isVariable
         updatedXP.tags = tags
         updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder
 
