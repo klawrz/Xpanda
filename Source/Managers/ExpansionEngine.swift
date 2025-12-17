@@ -26,8 +26,11 @@ class ExpansionEngine {
             return
         }
 
-        // Create event tap to monitor keyboard events
-        let eventMask = (1 << CGEventType.keyDown.rawValue)
+        // Create event tap to monitor keyboard events and mouse clicks
+        let eventMask = (1 << CGEventType.keyDown.rawValue) |
+                       (1 << CGEventType.leftMouseDown.rawValue) |
+                       (1 << CGEventType.rightMouseDown.rawValue) |
+                       (1 << CGEventType.flagsChanged.rawValue)
 
         guard let eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -66,6 +69,18 @@ class ExpansionEngine {
             return Unmanaged.passRetained(event)
         }
 
+        // Clear buffer on mouse clicks (user is repositioning cursor)
+        if type == .leftMouseDown || type == .rightMouseDown {
+            typedBuffer = ""
+            return Unmanaged.passRetained(event)
+        }
+
+        // Clear buffer on modifier key changes (Cmd, Ctrl, etc.)
+        if type == .flagsChanged {
+            typedBuffer = ""
+            return Unmanaged.passRetained(event)
+        }
+
         if type == .keyDown {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
@@ -75,6 +90,10 @@ class ExpansionEngine {
                 if !typedBuffer.isEmpty {
                     typedBuffer.removeLast()
                 }
+                // If buffer becomes empty after deletion, ensure it's truly cleared
+                if typedBuffer.isEmpty {
+                    typedBuffer = ""
+                }
                 return Unmanaged.passRetained(event)
             case 36, 76: // Return/Enter - clear buffer
                 typedBuffer = ""
@@ -83,6 +102,9 @@ class ExpansionEngine {
                 typedBuffer = ""
                 return Unmanaged.passRetained(event)
             case 53: // Escape - clear buffer
+                typedBuffer = ""
+                return Unmanaged.passRetained(event)
+            case 123, 124, 125, 126: // Arrow keys - clear buffer
                 typedBuffer = ""
                 return Unmanaged.passRetained(event)
             default:
