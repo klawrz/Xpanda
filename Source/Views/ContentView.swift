@@ -171,6 +171,7 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(white: 1.0, opacity: 0.03))
             }
         }
 

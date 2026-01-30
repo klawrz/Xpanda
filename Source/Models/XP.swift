@@ -949,12 +949,58 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         print("   Loaded string length: \(loadedString.length)")
         print("   Loaded string: \(loadedString.string)")
 
-        // Restore images from fileWrapper data
+        // Restore images and pill attachments from fileWrapper data
         let mutableString = NSMutableAttributedString(attributedString: loadedString)
         mutableString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: mutableString.length), options: []) { value, range, _ in
             if let attachment = value as? NSTextAttachment {
+                // Check if it's a JSON attachment (date, time, variable, fill-in pills)
+                if let fileWrapper = attachment.fileWrapper,
+                   let data = fileWrapper.regularFileContents,
+                   let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                   let type = json["type"] as? String {
+
+                    // Restore the appropriate custom attachment cell
+                    switch type {
+                    case "date":
+                        if let format = json["format"] as? String {
+                            attachment.attachmentCell = DatePillAttachmentCell(format: format)
+                            print("   ✓ Restored date pill at range \(range), format: \(format)")
+                        }
+                    case "time":
+                        if let format = json["format"] as? String {
+                            attachment.attachmentCell = TimePillAttachmentCell(format: format)
+                            print("   ✓ Restored time pill at range \(range), format: \(format)")
+                        }
+                    case "variable":
+                        if let keyword = json["keyword"] as? String {
+                            attachment.attachmentCell = VariablePillAttachmentCell(variableKeyword: keyword)
+                            print("   ✓ Restored variable pill at range \(range), keyword: \(keyword)")
+                        }
+                    case "fillin_single":
+                        if let label = json["label"] as? String,
+                           let defaultValue = json["default"] as? String {
+                            attachment.attachmentCell = FillInPillAttachmentCell(label: label, defaultValue: defaultValue)
+                            print("   ✓ Restored single fill-in pill at range \(range), label: \(label)")
+                        }
+                    case "fillin_multi":
+                        if let label = json["label"] as? String,
+                           let defaultValue = json["default"] as? String {
+                            attachment.attachmentCell = MultiLineFillInPillAttachmentCell(label: label, defaultValue: defaultValue)
+                            print("   ✓ Restored multi fill-in pill at range \(range), label: \(label)")
+                        }
+                    case "fillin_select":
+                        if let label = json["label"] as? String,
+                           let options = json["options"] as? [String],
+                           let defaultIndex = json["defaultIndex"] as? Int {
+                            attachment.attachmentCell = SelectFillInPillAttachmentCell(label: label, options: options, defaultIndex: defaultIndex)
+                            print("   ✓ Restored select fill-in pill at range \(range), label: \(label)")
+                        }
+                    default:
+                        print("   📎 Unknown attachment type at range \(range): \(type)")
+                    }
+                }
                 // If attachment has no image but has fileWrapper with image data, restore it
-                if attachment.image == nil,
+                else if attachment.image == nil,
                    let fileWrapper = attachment.fileWrapper,
                    let imageData = fileWrapper.regularFileContents,
                    let image = NSImage(data: imageData) {

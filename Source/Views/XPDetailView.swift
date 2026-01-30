@@ -304,7 +304,7 @@ struct XPDetailView: View {
             .padding(24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(xp.isVariable ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.08) : Color.clear)
+        .background(xp.isVariable ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.08) : Color(white: 1.0, opacity: 0.03))
     }
 
     private var isValid: Bool {

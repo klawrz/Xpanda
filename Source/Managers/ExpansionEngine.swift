@@ -1,6 +1,7 @@
 import Cocoa
 import ApplicationServices
 import AppKit
+import UserNotifications
 
 class ExpansionEngine {
     static let shared = ExpansionEngine()
@@ -8,9 +9,14 @@ class ExpansionEngine {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var typedBuffer: String = ""
-    private let maxBufferLength = 50
+    private let maxBufferLength = 200
 
     private var isEnabled = true
+
+    // Missed expansion notification tracking
+    private var recentlyNotifiedXPs: [UUID: Date] = [:]
+    private let notificationCooldown: TimeInterval = 300 // 5 minutes
+    private let minExpansionLength = 10 // Skip short expansions
 
     // Associated object keys for button handlers
     private static var cancelButtonPanelKey: UInt8 = 0
@@ -53,6 +59,10 @@ class ExpansionEngine {
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
 
+
+        // Request notification permission for missed expansion reminders
+        requestNotificationPermission()
+
         print("✅ Xpanda expansion engine started (\(XPManager.shared.xps.count) XPs loaded)")
     }
 
@@ -75,9 +85,13 @@ class ExpansionEngine {
             return Unmanaged.passRetained(event)
         }
 
-        // Clear buffer on modifier key changes (Cmd, Ctrl, etc.)
+        // Clear buffer on modifier key changes (Cmd, Ctrl, Option) but NOT Shift
         if type == .flagsChanged {
-            typedBuffer = ""
+            let flags = event.flags
+            // Only clear if Cmd, Ctrl, or Option is pressed (not just Shift)
+            if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) {
+                typedBuffer = ""
+            }
             return Unmanaged.passRetained(event)
         }
 
@@ -136,6 +150,9 @@ class ExpansionEngine {
         // Check for matches after every character
         if let match = findMatch() {
             performExpansion(xp: match, proxy: proxy)
+        } else {
+            // Check if user just typed out an expansion's content
+            checkForMissedExpansion()
         }
     }
 
@@ -1722,6 +1739,95 @@ class ExpansionEngine {
             self.isField = true
             self.label = label
             self.defaultValue = defaultValue
+        }
+    }
+
+    // MARK: - Missed Expansion Notifications
+
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if granted {
+                print("✅ Notification permission granted")
+            } else if let error = error {
+                print("❌ Notification permission error: \(error)")
+            }
+        }
+    }
+
+    private func checkForMissedExpansion() {
+        // Don't check if buffer is too small
+        guard typedBuffer.count >= minExpansionLength else { return }
+
+        // Find if any XP expansion matches what the user just typed
+        if let matchedXP = findMatchByExpansionContent() {
+            // Check cooldown - don't spam notifications
+            if let lastNotified = recentlyNotifiedXPs[matchedXP.id],
+               Date().timeIntervalSince(lastNotified) < notificationCooldown {
+                return
+            }
+
+            // Show notification and record the time
+            recentlyNotifiedXPs[matchedXP.id] = Date()
+            showMissedExpansionNotification(for: matchedXP)
+        }
+    }
+
+    private func findMatchByExpansionContent() -> XP? {
+        let manager = XPManager.shared
+
+        for xp in manager.xps {
+            // Get plain text expansion
+            let expansion = xp.expansion
+
+            // Skip short expansions to avoid false positives
+            guard expansion.count >= minExpansionLength else { continue }
+
+            // Skip variables (they're meant to be embedded, not typed directly)
+            guard !xp.isVariable else { continue }
+
+            // Check if the buffer ends with this expansion
+            guard typedBuffer.hasSuffix(expansion) else { continue }
+
+            // Word boundary check - expansion should be at start of buffer or preceded by whitespace/punctuation
+            let expansionStartIndex = typedBuffer.index(typedBuffer.endIndex, offsetBy: -expansion.count)
+
+            if expansionStartIndex == typedBuffer.startIndex {
+                return xp
+            }
+
+            let charBeforeIndex = typedBuffer.index(before: expansionStartIndex)
+            let charBefore = typedBuffer[charBeforeIndex]
+
+            if charBefore.isWhitespace || charBefore.isPunctuation {
+                return xp
+            }
+        }
+
+        return nil
+    }
+
+    private func showMissedExpansionNotification(for xp: XP) {
+        let content = UNMutableNotificationContent()
+        content.title = "Xpanda Tip"
+
+        // Create a preview of the expansion (truncate if too long)
+        let expansionPreview = xp.expansion.count > 30
+            ? String(xp.expansion.prefix(30)) + "..."
+            : xp.expansion
+
+        content.body = "You just typed \"\(expansionPreview)\". Next time, use \"\(xp.keyword)\" to save time!"
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil // Show immediately
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("❌ Failed to show notification: \(error)")
+            }
         }
     }
 }

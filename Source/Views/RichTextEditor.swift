@@ -627,6 +627,18 @@ struct RichTextEditor: NSViewRepresentable {
         if textView.string != attributedString.string {
             let selectedRange = textView.selectedRange()
             textView.textStorage?.setAttributedString(attributedString)
+
+            // Invalidate the layout manager's glyph cache to prevent ghost text
+            // This ensures old glyphs from previous line layouts are cleared
+            if let layoutManager = textView.layoutManager {
+                let fullRange = NSRange(location: 0, length: attributedString.length)
+                layoutManager.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
+                layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+            }
+
+            // Force the text view to redraw to clear any rendering artifacts
+            textView.setNeedsDisplay(textView.bounds)
+
             // Restore selection if still valid
             if selectedRange.location <= textView.string.count {
                 textView.setSelectedRange(selectedRange)
@@ -655,6 +667,25 @@ struct RichTextEditor: NSViewRepresentable {
         // This gets called when attributes change (bold, italic, underline)
         func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int) {
             if editedMask.contains(.editedAttributes) || editedMask.contains(.editedCharacters) {
+                // When text is deleted, invalidate display after a short delay to prevent ghost text
+                // without interfering with cursor positioning
+                if editedMask.contains(.editedCharacters) && delta < 0 {
+                    if let layoutManager = textStorage.layoutManagers.first {
+                        // Defer invalidation to next run loop cycle so layout completes first
+                        DispatchQueue.main.async {
+                            // Invalidate glyphs and layout to clear any ghost text
+                            let fullRange = NSRange(location: 0, length: textStorage.length)
+                            layoutManager.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
+                            layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+
+                            // Force redraw
+                            layoutManager.textContainers.forEach { container in
+                                container.textView?.setNeedsDisplay(container.textView?.bounds ?? .zero)
+                            }
+                        }
+                    }
+                }
+
                 // Attributes or text changed, update the binding
                 DispatchQueue.main.async {
                     self.parent.attributedString = textStorage.copy() as! NSAttributedString
@@ -1481,8 +1512,10 @@ struct RichTextToolbar: View {
             timeSecondFormat = ""
         }
 
-        // AM/PM
-        if format.contains("a") {
+        // AM/PM - check a_lower first since it contains "a"
+        if format.contains("a_lower") {
+            timeAMPMFormat = "a_lower"
+        } else if format.contains("a") {
             timeAMPMFormat = "a"
         } else {
             timeAMPMFormat = ""
@@ -1689,9 +1722,10 @@ struct RichTextToolbar: View {
 
         let range = textView.selectedRange()
 
-        // Scale image to fit nicely in the text editor (max 200 points wide/tall)
-        let maxWidth: CGFloat = 200
-        let maxHeight: CGFloat = 200
+        // Scale image to fit nicely in the text editor while preserving quality
+        // Use larger max width to display screenshots at reasonable size
+        let maxWidth: CGFloat = 450
+        let maxHeight: CGFloat = 400
 
         // Calculate scale to fit within both width and height constraints
         let widthScale = maxWidth / image.size.width
@@ -2429,22 +2463,40 @@ struct DateConfigDialog: View {
 
     @State private var previewText: String = ""
     @State private var isEditingPreview = false
+    @State private var sectionOrder: [DateSection] = [.weekday, .month, .day, .year]
+
+    enum DateSection: String, CaseIterable, Identifiable {
+        case weekday = "Weekday"
+        case month = "Month"
+        case day = "Day"
+        case year = "Year"
+
+        var id: String { rawValue }
+    }
 
     private func updatePreviewFromFormats() {
-        // Build an array of selected components in logical order
+        // Build an array of selected components using the custom order
         var components: [String] = []
 
-        if !weekdayFormat.isEmpty {
-            components.append(weekdayFormat)
-        }
-        if !monthFormat.isEmpty {
-            components.append(monthFormat)
-        }
-        if !dayFormat.isEmpty {
-            components.append(dayFormat)
-        }
-        if !yearFormat.isEmpty {
-            components.append(yearFormat)
+        for section in sectionOrder {
+            switch section {
+            case .weekday:
+                if !weekdayFormat.isEmpty {
+                    components.append(weekdayFormat)
+                }
+            case .month:
+                if !monthFormat.isEmpty {
+                    components.append(monthFormat)
+                }
+            case .day:
+                if !dayFormat.isEmpty {
+                    components.append(dayFormat)
+                }
+            case .year:
+                if !yearFormat.isEmpty {
+                    components.append(yearFormat)
+                }
+            }
         }
 
         if components.isEmpty {
@@ -2454,7 +2506,48 @@ struct DateConfigDialog: View {
             let format = components.joined(separator: " ")
             let formatter = DateFormatter()
             formatter.dateFormat = format
-            previewText = formatter.string(from: Date())
+            var result = formatter.string(from: Date())
+
+            // Handle ordinal placeholders
+            if result.contains("{{ordinal}}") {
+                // Check if it's a day ordinal (d{{ordinal}}) or month ordinal (M{{ordinal}})
+                // We need to replace all occurrences, checking the context
+                var workingResult = result
+                let pattern = "(\\d+)\\{\\{ordinal\\}\\}"
+                if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                    let matches = regex.matches(in: workingResult, options: [], range: NSRange(location: 0, length: (workingResult as NSString).length))
+
+                    // Replace in reverse to maintain indices
+                    for match in matches.reversed() {
+                        let numberRange = match.range(at: 1)
+                        let numberStr = (workingResult as NSString).substring(with: numberRange)
+                        if let number = Int(numberStr) {
+                            let ordinalSuffix = getOrdinalSuffix(for: number)
+                            let fullRange = match.range
+                            workingResult = (workingResult as NSString).replacingCharacters(in: fullRange, with: "\(number)\(ordinalSuffix)")
+                        }
+                    }
+                }
+                result = workingResult
+            }
+
+            previewText = result
+        }
+    }
+
+    private func getOrdinalSuffix(for number: Int) -> String {
+        let ones = number % 10
+        let tens = (number % 100) / 10
+
+        if tens == 1 {
+            return "th"
+        }
+
+        switch ones {
+        case 1: return "st"
+        case 2: return "nd"
+        case 3: return "rd"
+        default: return "th"
         }
     }
 
@@ -2566,201 +2659,33 @@ struct DateConfigDialog: View {
 
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Year format
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Year")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+            Text("Drag to reorder date components")
+                .font(.caption)
+                .foregroundColor(.secondary)
 
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                yearFormat = ""
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("None")
-                                    .frame(maxWidth: .infinity)
+            List {
+                ForEach(sectionOrder) { section in
+                    sectionView(for: section)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                        .listRowBackground(Color.clear)
+                        .onHover { hovering in
+                            if hovering {
+                                NSCursor.openHand.push()
+                            } else {
+                                NSCursor.pop()
                             }
-                            .buttonStyle(.bordered)
-                            .background(yearFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                yearFormat = "yy"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("2-digit (25)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(yearFormat == "yy" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                yearFormat = "yyyy"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("4-digit (2025)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(yearFormat == "yyyy" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
                         }
+                }
+                .onMove { from, to in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        sectionOrder.move(fromOffsets: from, toOffset: to)
                     }
-
-                    // Month format
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Month")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                monthFormat = ""
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("None")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(monthFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                monthFormat = "M"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("1-2 (12)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(monthFormat == "M" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                        }
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                monthFormat = "MM"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("2-digit (12)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(monthFormat == "MM" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                monthFormat = "MMM"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("Short (Dec)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(monthFormat == "MMM" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                monthFormat = "MMMM"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("Full (December)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(monthFormat == "MMMM" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                        }
-                    }
-
-                    // Day format
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Day")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                dayFormat = ""
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("None")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(dayFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                dayFormat = "d"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("1-2 (4)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(dayFormat == "d" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                dayFormat = "dd"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("2-digit (04)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(dayFormat == "dd" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                        }
-                    }
-
-                    // Weekday format
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Weekday")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                weekdayFormat = ""
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("None")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(weekdayFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                weekdayFormat = "EEE"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("Short (Wed)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(weekdayFormat == "EEE" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                weekdayFormat = "EEEE"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("Full (Wednesday)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(weekdayFormat == "EEEE" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                        }
-                    }
+                    updatePreviewFromFormats()
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .frame(height: 350)
 
             HStack {
@@ -2784,6 +2709,132 @@ struct DateConfigDialog: View {
         .padding(20)
         .frame(width: 500)
     }
+
+    @ViewBuilder
+    private func sectionView(for section: DateSection) -> some View {
+        switch section {
+        case .weekday:
+            weekdaySection
+        case .month:
+            monthSection
+        case .day:
+            daySection
+        case .year:
+            yearSection
+        }
+    }
+
+    private var weekdaySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text("Weekday")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { weekdayFormat },
+                    set: { newValue in
+                        weekdayFormat = newValue
+                        updatePreviewFromFormats()
+                    }
+                )) {
+                    Text("None").tag("")
+                    Text("Short (Mon)").tag("EEE")
+                    Text("Full (Monday)").tag("EEEE")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+        }
+    }
+
+    private var monthSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text("Month")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { monthFormat },
+                    set: { newValue in
+                        monthFormat = newValue
+                        updatePreviewFromFormats()
+                    }
+                )) {
+                    Text("None").tag("")
+                    Text("1-digit (1)").tag("M")
+                    Text("2-digit (01)").tag("MM")
+                    Text("Ordinal (1st)").tag("M'{{ordinal}}'")
+                    Text("Short (Jan)").tag("MMM")
+                    Text("Full (January)").tag("MMMM")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+        }
+    }
+
+    private var daySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text("Day")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { dayFormat },
+                    set: { newValue in
+                        dayFormat = newValue
+                        updatePreviewFromFormats()
+                    }
+                )) {
+                    Text("None").tag("")
+                    Text("1-digit (1)").tag("d")
+                    Text("2-digit (01)").tag("dd")
+                    Text("Ordinal (1st)").tag("d'{{ordinal}}'")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+        }
+    }
+
+    private var yearSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text("Year")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { yearFormat },
+                    set: { newValue in
+                        yearFormat = newValue
+                        updatePreviewFromFormats()
+                    }
+                )) {
+                    Text("None").tag("")
+                    Text("2-digit (YY)").tag("yy")
+                    Text("4-digit (YYYY)").tag("yyyy")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+        }
+    }
 }
 
 // Time configuration dialog
@@ -2797,32 +2848,60 @@ struct TimeConfigDialog: View {
     let onCancel: () -> Void
 
     @State private var previewText: String = ""
+    @State private var sectionOrder: [TimeSection] = [.hour, .minute, .second, .ampm]
+
+    enum TimeSection: String, CaseIterable, Identifiable {
+        case hour = "Hour"
+        case minute = "Minute"
+        case second = "Second"
+        case ampm = "AM/PM"
+
+        var id: String { rawValue }
+    }
 
     private func updatePreviewFromFormats() {
-        // Build an array of selected components in logical order
+        // Build an array of selected components using the custom order
         var components: [String] = []
 
-        if !hourFormat.isEmpty {
-            components.append(hourFormat)
-        }
-        if !minuteFormat.isEmpty {
-            components.append(minuteFormat)
-        }
-        if !secondFormat.isEmpty {
-            components.append(secondFormat)
-        }
-        if !ampmFormat.isEmpty {
-            components.append(ampmFormat)
+        for section in sectionOrder {
+            switch section {
+            case .hour:
+                if !hourFormat.isEmpty {
+                    components.append(hourFormat)
+                }
+            case .minute:
+                if !minuteFormat.isEmpty {
+                    components.append(minuteFormat)
+                }
+            case .second:
+                if !secondFormat.isEmpty {
+                    components.append(secondFormat)
+                }
+            case .ampm:
+                if !ampmFormat.isEmpty {
+                    components.append(ampmFormat)
+                }
+            }
         }
 
         if components.isEmpty {
             previewText = "No format selected"
         } else {
-            // Join with colon by default
-            let format = components.joined(separator: ":")
+            // Join with colon by default, but handle a_lower specially
+            let hasLowerAMPM = components.contains("a_lower")
+            let formatComponents = components.map { $0 == "a_lower" ? "a" : $0 }
+            let format = formatComponents.joined(separator: ":")
             let formatter = DateFormatter()
             formatter.dateFormat = format
-            previewText = formatter.string(from: Date())
+            var result = formatter.string(from: Date())
+
+            // If using lowercase am/pm, convert AM/PM to lowercase
+            if hasLowerAMPM {
+                result = result.replacingOccurrences(of: "AM", with: "am")
+                result = result.replacingOccurrences(of: "PM", with: "pm")
+            }
+
+            previewText = result
         }
     }
 
@@ -2863,11 +2942,20 @@ struct TimeConfigDialog: View {
         }
 
         if !ampmFormat.isEmpty {
-            let formatter = DateFormatter()
-            formatter.dateFormat = ampmFormat
-            let ampmValue = formatter.string(from: now)
-            if let range = format.range(of: ampmValue) {
-                replacements.append((range, ampmFormat))
+            if ampmFormat == "a_lower" {
+                // Look for lowercase am/pm
+                if let range = format.range(of: "am") {
+                    replacements.append((range, ampmFormat))
+                } else if let range = format.range(of: "pm") {
+                    replacements.append((range, ampmFormat))
+                }
+            } else {
+                let formatter = DateFormatter()
+                formatter.dateFormat = ampmFormat
+                let ampmValue = formatter.string(from: now)
+                if let range = format.range(of: ampmValue) {
+                    replacements.append((range, ampmFormat))
+                }
             }
         }
 
@@ -2923,9 +3011,21 @@ struct TimeConfigDialog: View {
             .onAppear {
                 // If we have a timeSeparator (editing existing time), use it to generate preview
                 if !separator.isEmpty {
+                    // Handle a_lower specially - it's not a valid DateFormatter code
+                    let hasLowerAMPM = separator.contains("a_lower")
+                    let formatForDateFormatter = separator.replacingOccurrences(of: "a_lower", with: "a")
+
                     let formatter = DateFormatter()
-                    formatter.dateFormat = separator
-                    previewText = formatter.string(from: Date())
+                    formatter.dateFormat = formatForDateFormatter
+                    var result = formatter.string(from: Date())
+
+                    // Convert AM/PM to lowercase if using a_lower
+                    if hasLowerAMPM {
+                        result = result.replacingOccurrences(of: "AM", with: "am")
+                        result = result.replacingOccurrences(of: "PM", with: "pm")
+                    }
+
+                    previewText = result
                 } else {
                     // New time, build from components
                     updatePreviewFromFormats()
@@ -2934,191 +3034,34 @@ struct TimeConfigDialog: View {
 
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Hour format
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Hour")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+            Text("Drag to reorder time components")
+                .font(.caption)
+                .foregroundColor(.secondary)
 
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                hourFormat = ""
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("None")
-                                    .frame(maxWidth: .infinity)
+            List {
+                ForEach(sectionOrder) { section in
+                    sectionView(for: section)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                        .listRowBackground(Color.clear)
+                        .onHover { hovering in
+                            if hovering {
+                                NSCursor.openHand.push()
+                            } else {
+                                NSCursor.pop()
                             }
-                            .buttonStyle(.bordered)
-                            .background(hourFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                hourFormat = "H"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("24hr 1-2 (0-23)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(hourFormat == "H" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
                         }
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                hourFormat = "HH"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("24hr 2-digit (00-23)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(hourFormat == "HH" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                hourFormat = "h"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("12hr 1-2 (1-12)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(hourFormat == "h" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                hourFormat = "hh"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("12hr 2-digit (01-12)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(hourFormat == "hh" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                        }
+                }
+                .onMove { from, to in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        sectionOrder.move(fromOffsets: from, toOffset: to)
                     }
-
-                    // Minute format
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Minute")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                minuteFormat = ""
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("None")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(minuteFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                minuteFormat = "m"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("1-2 digits (0-59)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(minuteFormat == "m" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                minuteFormat = "mm"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("2 digits (00-59)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(minuteFormat == "mm" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                        }
-                    }
-
-                    // Second format
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Second")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                secondFormat = ""
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("None")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(secondFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                secondFormat = "s"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("1-2 digits (0-59)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(secondFormat == "s" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                secondFormat = "ss"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("2 digits (00-59)")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(secondFormat == "ss" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                        }
-                    }
-
-                    // AM/PM
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("AM/PM")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                ampmFormat = ""
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("None")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(ampmFormat.isEmpty ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-
-                            Button(action: {
-                                ampmFormat = "a"
-                                updatePreviewFromFormats()
-                            }) {
-                                Text("Show AM/PM")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .background(ampmFormat == "a" ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                        }
-                    }
+                    updatePreviewFromFormats()
                 }
             }
-            .frame(height: 300)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .frame(height: 350)
 
             HStack {
                 Button("Cancel") {
@@ -3140,5 +3083,129 @@ struct TimeConfigDialog: View {
         }
         .padding(20)
         .frame(width: 500)
+    }
+
+    @ViewBuilder
+    private func sectionView(for section: TimeSection) -> some View {
+        switch section {
+        case .hour:
+            hourSection
+        case .minute:
+            minuteSection
+        case .second:
+            secondSection
+        case .ampm:
+            ampmSection
+        }
+    }
+
+    private var hourSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text("Hour")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { hourFormat },
+                    set: { newValue in
+                        hourFormat = newValue
+                        updatePreviewFromFormats()
+                    }
+                )) {
+                    Text("None").tag("")
+                    Text("24h (1:59)").tag("H")
+                    Text("24h (01:59)").tag("HH")
+                    Text("12h (1:59)").tag("h")
+                    Text("12h (01:59)").tag("hh")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+        }
+    }
+
+    private var minuteSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text("Minute")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { minuteFormat },
+                    set: { newValue in
+                        minuteFormat = newValue
+                        updatePreviewFromFormats()
+                    }
+                )) {
+                    Text("None").tag("")
+                    Text("1-digit (1:9)").tag("m")
+                    Text("2-digit (1:09)").tag("mm")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+        }
+    }
+
+    private var secondSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text("Second")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { secondFormat },
+                    set: { newValue in
+                        secondFormat = newValue
+                        updatePreviewFromFormats()
+                    }
+                )) {
+                    Text("None").tag("")
+                    Text("1-digit (1:59:9)").tag("s")
+                    Text("2-digit (1:59:09)").tag("ss")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+        }
+    }
+
+    private var ampmSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text("AM/PM")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { ampmFormat },
+                    set: { newValue in
+                        ampmFormat = newValue
+                        updatePreviewFromFormats()
+                    }
+                )) {
+                    Text("None").tag("")
+                    Text("AM/PM").tag("a")
+                    Text("am/pm").tag("a_lower")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+        }
     }
 }

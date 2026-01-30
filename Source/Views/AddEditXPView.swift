@@ -69,6 +69,13 @@ struct AddEditXPView: View {
                 Section("Keyword") {
                     TextField("e.g., xintro", text: $keyword)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: keyword) { newValue in
+                            // Strip spaces - they're not allowed in keywords
+                            let noSpaces = newValue.replacingOccurrences(of: " ", with: "")
+                            if noSpaces != newValue {
+                                keyword = noSpaces
+                            }
+                        }
 
                     if hasKeywordConflict {
                         HStack {
