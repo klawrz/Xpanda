@@ -7,6 +7,8 @@ struct ContentView: View {
     @State private var showingImportExport = false
     @State private var showingAbout = false
     @State private var scrollToNewXP: UUID?
+    @State private var showingDeleteConfirmation = false
+    @State private var xpToDelete: XP?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,9 +87,16 @@ struct ContentView: View {
                             .tag(xp)
                                 .contextMenu {
                                     Button("Delete", role: .destructive) {
-                                        xpManager.delete(xp)
+                                        xpToDelete = xp
+                                        showingDeleteConfirmation = true
                                     }
                                 }
+                        }
+                    }
+                    .onDeleteCommand {
+                        if let xp = selectedXP {
+                            xpToDelete = xp
+                            showingDeleteConfirmation = true
                         }
                     }
                     .listStyle(.sidebar)
@@ -128,10 +137,10 @@ struct ContentView: View {
                 ToolbarItem(placement: .navigation) {
                     HStack {
                         Menu {
-                            Button("Import XPs...") {
+                            Button("Import XPs") {
                                 showingImportExport = true
                             }
-                            Button("Export XPs...") {
+                            Button("Export XPs") {
                                 exportXPs()
                             }
                         } label: {
@@ -190,6 +199,24 @@ struct ContentView: View {
         .popover(isPresented: $showingAbout) {
             AboutView()
                 .environmentObject(xpManager)
+        }
+        .alert("Delete XP", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                xpToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let xp = xpToDelete {
+                    if selectedXP?.id == xp.id {
+                        selectedXP = nil
+                    }
+                    xpManager.delete(xp)
+                    xpToDelete = nil
+                }
+            }
+        } message: {
+            if let xp = xpToDelete {
+                Text("Are you sure you want to delete \"\(xp.keyword.isEmpty ? "(Untitled)" : xp.keyword)\"? This cannot be undone.")
+            }
         }
     }
 

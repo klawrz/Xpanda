@@ -197,13 +197,25 @@ class XPManager: ObservableObject {
 
     func delete(_ xp: XP) {
         xps.removeAll { $0.id == xp.id }
+        pruneStaleFilters()
         save()
     }
 
     func delete(at offsets: IndexSet) {
         let xpsToDelete = offsets.map { filteredXPs[$0] }
         xps.removeAll { xp in xpsToDelete.contains(xp) }
+        pruneStaleFilters()
         save()
+    }
+
+    /// Remove any active tag/folder filters that no longer match any XP.
+    private func pruneStaleFilters() {
+        let remainingTags = Set(xps.flatMap { $0.tags })
+        selectedTags = selectedTags.intersection(remainingTags)
+
+        if let folder = selectedFolder, !xps.contains(where: { $0.folder == folder }) {
+            selectedFolder = nil
+        }
     }
 
     // MARK: - Storage

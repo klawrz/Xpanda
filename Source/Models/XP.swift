@@ -1015,11 +1015,12 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         }
 
         // Fix text color for all non-attachment text (ensure it's not hardcoded black)
-        mutableString.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: mutableString.length), options: []) { value, range, _ in
-            // Check if this range has an attachment - don't modify attachment formatting
-            let hasAttachment = mutableString.attribute(.attachment, at: range.location, effectiveRange: nil) != nil
+        // Use enumerateAttributes (plural) to visit ALL ranges, including those without
+        // an explicit foregroundColor — imported RTF data may omit foreground color entirely,
+        // defaulting to black which is invisible in dark mode.
+        mutableString.enumerateAttributes(in: NSRange(location: 0, length: mutableString.length), options: []) { attrs, range, _ in
+            let hasAttachment = attrs[.attachment] != nil
             if !hasAttachment {
-                // Replace any foreground color with labelColor for proper dark/light mode support
                 mutableString.addAttribute(.foregroundColor, value: NSColor.labelColor, range: range)
             }
         }
@@ -1131,7 +1132,11 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
 
     // Helper to create attributed string from plain text
     static func makeAttributedString(from plainText: String) -> NSAttributedString {
-        return NSAttributedString(string: plainText)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor
+        ]
+        return NSAttributedString(string: plainText, attributes: attributes)
     }
 
     static func == (lhs: XP, rhs: XP) -> Bool {

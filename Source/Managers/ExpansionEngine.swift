@@ -79,6 +79,12 @@ class ExpansionEngine {
             return Unmanaged.passRetained(event)
         }
 
+        // Don't trigger expansions inside Xpanda itself
+        if let frontApp = NSWorkspace.shared.frontmostApplication,
+           frontApp.bundleIdentifier == Bundle.main.bundleIdentifier {
+            return Unmanaged.passRetained(event)
+        }
+
         // Clear buffer on mouse clicks (user is repositioning cursor)
         if type == .leftMouseDown || type == .rightMouseDown {
             typedBuffer = ""

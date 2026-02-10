@@ -89,7 +89,14 @@ struct XPDetailView: View {
                             .textFieldStyle(.plain)
                             .font(.title)
                             .bold()
-                            .onChange(of: keyword) { _ in debouncedSave() }
+                            .onChange(of: keyword) { newValue in
+                                // Strip spaces — not allowed in keywords
+                                let stripped = newValue.replacingOccurrences(of: " ", with: "")
+                                if stripped != newValue {
+                                    keyword = stripped
+                                }
+                                debouncedSave()
+                            }
 
                         if hasConflict {
                             Image(systemName: "exclamationmark.triangle.fill")

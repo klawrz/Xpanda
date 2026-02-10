@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ImportView: View {
     @EnvironmentObject var xpManager: XPManager
@@ -8,6 +9,8 @@ struct ImportView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var showingSuccess = false
+    @State private var isTargeted = false
+    @State private var pendingFileURL: URL?
 
     enum ImportMode {
         case merge
@@ -30,12 +33,68 @@ struct ImportView: View {
             Divider()
 
             VStack(spacing: 20) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 60))
-                    .foregroundColor(.blue)
+                // Drop zone
+                VStack(spacing: 12) {
+                    if let fileURL = pendingFileURL {
+                        // File staged — show confirmation
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.blue)
 
-                Text("Import XPs from a file")
-                    .font(.title3)
+                        Text(fileURL.lastPathComponent)
+                            .font(.title3)
+                            .fontWeight(.medium)
+
+                        Text("Ready to \(importMode == .merge ? "merge" : "replace")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 12) {
+                            Button("Remove") {
+                                pendingFileURL = nil
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+
+                            Button("Import") {
+                                importFile(from: fileURL)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                        }
+                    } else {
+                        // No file — show drop zone
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 48))
+                            .foregroundColor(isTargeted ? .white : .blue)
+
+                        Text("Drag & drop a JSON file here")
+                            .font(.title3)
+                            .foregroundColor(isTargeted ? .white : .primary)
+
+                        Button(action: selectFile) {
+                            Label("Choose File...", systemImage: "doc")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isTargeted ? Color.accentColor.opacity(0.2) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(
+                            isTargeted ? Color.accentColor : Color.secondary.opacity(0.4),
+                            style: StrokeStyle(lineWidth: 2, dash: [8])
+                        )
+                )
+                .onDrop(of: [UTType.fileURL], isTargeted: $isTargeted) { providers in
+                    handleDrop(providers)
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Import Mode")
@@ -57,12 +116,6 @@ struct ImportView: View {
                 .background(Color(NSColor.controlBackgroundColor))
                 .cornerRadius(8)
 
-                Button(action: selectFile) {
-                    Label("Choose File...", systemImage: "doc")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
                 if importMode == .replace {
                     HStack {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -76,7 +129,7 @@ struct ImportView: View {
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 450)
         .alert("Error", isPresented: $showingError) {
             Button("OK") {}
         } message: {
@@ -91,6 +144,28 @@ struct ImportView: View {
         }
     }
 
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            guard let data = item as? Data,
+                  let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+
+            if url.pathExtension.lowercased() == "json" {
+                DispatchQueue.main.async {
+                    pendingFileURL = url
+                }
+            } else {
+                DispatchQueue.main.async {
+                    errorMessage = "Only JSON files are supported."
+                    showingError = true
+                }
+            }
+        }
+
+        return true
+    }
+
     private func selectFile() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -101,7 +176,7 @@ struct ImportView: View {
 
         panel.begin { response in
             if response == .OK, let url = panel.url {
-                importFile(from: url)
+                pendingFileURL = url
             }
         }
     }
