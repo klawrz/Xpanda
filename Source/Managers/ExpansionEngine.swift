@@ -1671,9 +1671,26 @@ class ExpansionEngine {
     // MARK: - Date/Time Formatting
 
     private func formatDate(with format: String) -> String {
+        var processedFormat = format
+        var needsLowercaseAMPM = false
+        
+        // Handle a_lower special format for lowercase am/pm
+        if processedFormat.contains("a_lower") {
+            processedFormat = processedFormat.replacingOccurrences(of: "a_lower", with: "a")
+            needsLowercaseAMPM = true
+        }
+        
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = format
-        return dateFormatter.string(from: Date())
+        dateFormatter.dateFormat = processedFormat
+        var result = dateFormatter.string(from: Date())
+        
+        // Convert AM/PM to lowercase if needed
+        if needsLowercaseAMPM {
+            result = result.replacingOccurrences(of: "AM", with: "am")
+            result = result.replacingOccurrences(of: "PM", with: "pm")
+        }
+        
+        return result
     }
 
     private func parseTextSegments(_ text: String) -> [TextSegment] {
