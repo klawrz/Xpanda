@@ -5,7 +5,6 @@ struct ContentView: View {
     @State private var selectedXP: XP?
     @State private var showingConflicts = false
     @State private var showingImportExport = false
-    @State private var showingAbout = false
     @State private var scrollToNewXP: UUID?
     @State private var showingDeleteConfirmation = false
     @State private var xpToDelete: XP?
@@ -131,11 +130,7 @@ struct ContentView: View {
                                     .foregroundColor(.orange)
                             }
                         }
-                    }
-                }
 
-                ToolbarItem(placement: .navigation) {
-                    HStack {
                         Menu {
                             Button("Import XPs") {
                                 showingImportExport = true
@@ -146,15 +141,6 @@ struct ContentView: View {
                         } label: {
                             Label("More", systemImage: "ellipsis.circle")
                         }
-
-                        Button(action: { showingAbout = true }) {
-                            Image("PandaLogo")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 24, height: 24)
-                        }
-                        .buttonStyle(.plain)
-                        .help("About Xpanda")
                     }
                 }
             }
@@ -164,6 +150,8 @@ struct ContentView: View {
                let currentXP = xpManager.xps.first(where: { $0.id == selectedID }) {
                 XPDetailView(xp: currentXP)
                     .id(currentXP.id)
+                    .navigationTitle("")
+                    .toolbarBackground(.hidden, for: .windowToolbar)
             } else {
                 VStack(spacing: 20) {
                     Image("PandaLogo")
@@ -181,12 +169,23 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(white: 1.0, opacity: 0.03))
+                .navigationTitle("")
+                .toolbarBackground(.hidden, for: .windowToolbar)
             }
         }
 
             Divider()
 
-            ExperienceBar(progress: xpManager.progress)
+            HStack(spacing: 8) {
+                Image("PandaLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+                    .padding(.leading, 12)
+
+                ExperienceBar(progress: xpManager.progress)
+            }
+            .background(Color(red: 0.3, green: 0.1, blue: 0.5))
         }
         .sheet(isPresented: $showingConflicts) {
             ConflictView()
@@ -194,10 +193,6 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingImportExport) {
             ImportView()
-                .environmentObject(xpManager)
-        }
-        .popover(isPresented: $showingAbout) {
-            AboutView()
                 .environmentObject(xpManager)
         }
         .alert("Delete XP", isPresented: $showingDeleteConfirmation) {
@@ -213,6 +208,7 @@ struct ContentView: View {
                     xpToDelete = nil
                 }
             }
+            .keyboardShortcut(.return, modifiers: [])
         } message: {
             if let xp = xpToDelete {
                 Text("Are you sure you want to delete \"\(xp.keyword.isEmpty ? "(Untitled)" : xp.keyword)\"? This cannot be undone.")
@@ -276,7 +272,7 @@ struct SearchBar: View {
             }
         }
         .padding(8)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.white.opacity(0.15))
         .cornerRadius(8)
     }
 }

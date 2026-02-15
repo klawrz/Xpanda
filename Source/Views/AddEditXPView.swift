@@ -186,7 +186,7 @@ struct AddEditXPView: View {
             }
             .padding()
         }
-        .frame(width: 500, height: 600)
+        .frame(width: 560, height: 600)
         .alert("Error", isPresented: $showingError) {
             Button("OK") {}
         } message: {

@@ -982,6 +982,21 @@ class ExpansionEngine {
             print("   ✓ Replaced attachment with: \"\(item.replacementText)\"")
         }
 
+        // Replace clipboard-dynamic link URLs with actual clipboard content
+        let clipboardMarkerURL = "xpanda-clipboard://placeholder"
+        mutableString.enumerateAttribute(.link, in: NSRange(location: 0, length: mutableString.length), options: []) { value, range, _ in
+            if let url = value as? URL, url.absoluteString == clipboardMarkerURL {
+                if let clipboardURL = URL(string: clipboardContent) {
+                    mutableString.addAttribute(.link, value: clipboardURL, range: range)
+                    print("   \u{2713} Replaced clipboard link URL with: \(clipboardContent)")
+                } else {
+                    // If clipboard content isn't a valid URL, use it as-is
+                    mutableString.addAttribute(.link, value: clipboardContent, range: range)
+                    print("   \u{2713} Replaced clipboard link with raw text: \(clipboardContent)")
+                }
+            }
+        }
+
         // Find U+FFFC characters (object replacement character) that DON'T have valid attachments
         // (Image attachments should be preserved, not replaced with clipboard)
         let plainText = mutableString.string

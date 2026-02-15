@@ -717,6 +717,110 @@ struct RichTextEditor: NSViewRepresentable {
             parent.variableClickedData = VariableClickData(index: index, variableKeyword: keyword)
         }
 
+        // Handle Enter key for list continuation
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            guard let replacement = replacementString, replacement == "\n",
+                  let storage = textView.textStorage else {
+                return true
+            }
+
+            let str = storage.string as NSString
+            let currentLineRange = str.lineRange(for: NSRange(location: affectedCharRange.location, length: 0))
+            let currentLine = str.substring(with: currentLineRange)
+            // Remove trailing newline from current line for comparison
+            let trimmedLine = currentLine.hasSuffix("\n") ? String(currentLine.dropLast()) : currentLine
+
+            let bulletPrefix = "\u{2022} "
+            let numberedPattern = try! NSRegularExpression(pattern: "^(\\d+)\\. ")
+
+            if trimmedLine == bulletPrefix {
+                // Empty bullet line - remove prefix and end list
+                let paraStyle = NSMutableParagraphStyle()
+                paraStyle.headIndent = 0
+                storage.beginEditing()
+                storage.replaceCharacters(in: currentLineRange, with: "")
+                if currentLineRange.location < storage.length {
+                    let remainingRange = NSRange(location: currentLineRange.location, length: min(1, storage.length - currentLineRange.location))
+                    storage.addAttribute(.paragraphStyle, value: paraStyle, range: remainingRange)
+                }
+                storage.endEditing()
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: currentLineRange.location, length: 0))
+                // Reset typing attributes so next typed text has no list indent
+                textView.typingAttributes = [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor
+                ]
+                return false
+            } else if trimmedLine.hasPrefix(bulletPrefix) {
+                // Continue bullet list
+                DispatchQueue.main.async {
+                    let insertLoc = affectedCharRange.location + 1
+                    let paraStyle = NSMutableParagraphStyle()
+                    paraStyle.headIndent = 14
+                    let prefix = NSAttributedString(string: bulletPrefix, attributes: [
+                        .font: NSFont.systemFont(ofSize: 13),
+                        .foregroundColor: NSColor.labelColor,
+                        .paragraphStyle: paraStyle
+                    ])
+                    storage.beginEditing()
+                    storage.insert(prefix, at: insertLoc)
+                    storage.endEditing()
+                    textView.didChangeText()
+                    textView.setSelectedRange(NSRange(location: insertLoc + bulletPrefix.count, length: 0))
+                }
+                return true
+            }
+
+            let nsTrimmed = trimmedLine as NSString
+            if let match = numberedPattern.firstMatch(in: trimmedLine, range: NSRange(location: 0, length: nsTrimmed.length)) {
+                let numberStr = nsTrimmed.substring(with: match.range(at: 1))
+                let emptyNumberedPrefix = numberStr + ". "
+                if trimmedLine == emptyNumberedPrefix {
+                    // Empty numbered line - remove prefix and end list
+                    let paraStyle = NSMutableParagraphStyle()
+                    paraStyle.headIndent = 0
+                    storage.beginEditing()
+                    storage.replaceCharacters(in: currentLineRange, with: "")
+                    if currentLineRange.location < storage.length {
+                        let remainingRange = NSRange(location: currentLineRange.location, length: min(1, storage.length - currentLineRange.location))
+                        storage.addAttribute(.paragraphStyle, value: paraStyle, range: remainingRange)
+                    }
+                    storage.endEditing()
+                    textView.didChangeText()
+                    textView.setSelectedRange(NSRange(location: currentLineRange.location, length: 0))
+                    // Reset typing attributes so next typed text has no list indent
+                    textView.typingAttributes = [
+                        .font: NSFont.systemFont(ofSize: 13),
+                        .foregroundColor: NSColor.labelColor
+                    ]
+                    return false
+                } else {
+                    // Continue numbered list
+                    let nextNumber = (Int(numberStr) ?? 0) + 1
+                    let nextPrefix = "\(nextNumber). "
+                    DispatchQueue.main.async {
+                        let insertLoc = affectedCharRange.location + 1
+                        let paraStyle = NSMutableParagraphStyle()
+                        paraStyle.headIndent = 18
+                        let prefix = NSAttributedString(string: nextPrefix, attributes: [
+                            .font: NSFont.systemFont(ofSize: 13),
+                            .foregroundColor: NSColor.labelColor,
+                            .paragraphStyle: paraStyle
+                        ])
+                        storage.beginEditing()
+                        storage.insert(prefix, at: insertLoc)
+                        storage.endEditing()
+                        textView.didChangeText()
+                        textView.setSelectedRange(NSRange(location: insertLoc + nextPrefix.count, length: 0))
+                    }
+                    return true
+                }
+            }
+
+            return true
+        }
+
         // Fix typing attributes when selection changes (e.g., after moving cursor past an attachment)
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
@@ -768,6 +872,8 @@ struct RichTextToolbar: View {
     @State private var isBoldActive = false
     @State private var isItalicActive = false
     @State private var isUnderlineActive = false
+    @State private var isBulletListActive = false
+    @State private var isNumberedListActive = false
     @State private var updateTimer: Timer?
     @State private var showingLinkDialog = false
     @State private var linkURL = ""
@@ -808,7 +914,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "bold")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -821,7 +927,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "italic")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -834,13 +940,34 @@ struct RichTextToolbar: View {
                 Image(systemName: "underline")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .background(isUnderlineActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
             .cornerRadius(6)
             .help("Underline (⌘U)")
+
+            // Lists Menu
+            Menu {
+                Button { toggleBulletList() } label: {
+                    Label("Bullet List", systemImage: "list.bullet")
+                }
+                Button { toggleNumberedList() } label: {
+                    Label("Numbered List", systemImage: "list.number")
+                }
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .background((isBulletListActive || isNumberedListActive) ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Lists")
 
             Divider()
                 .frame(height: 16)
@@ -859,7 +986,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "calendar")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -881,7 +1008,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "clock")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -894,7 +1021,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "doc.on.clipboard")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -908,7 +1035,7 @@ struct RichTextToolbar: View {
             // Position Cursor
             Button(action: { positionCursor() }) {
                 CursorIconView()
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -931,7 +1058,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -945,7 +1072,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "link")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -958,7 +1085,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "photo")
                     .font(.system(size: 15))
                     .foregroundColor(.primary)
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -983,7 +1110,7 @@ struct RichTextToolbar: View {
                 Image(systemName: "function")
                     .font(.system(size: 15))
                     .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
-                    .frame(width: 44, height: 32)
+                    .frame(width: 38, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1014,7 +1141,7 @@ struct RichTextToolbar: View {
                 // Get the link text
                 if let text = textView.string.substring(with: effectiveRange) {
                     linkText = text
-                    linkURL = url.absoluteString
+                    linkURL = url.absoluteString == "xpanda-clipboard://placeholder" ? PlaceholderToken.clipboard.storageText : url.absoluteString
                     editingLinkRange = effectiveRange
                     showingLinkDialog = true
                 }
@@ -1254,6 +1381,43 @@ struct RichTextToolbar: View {
             isItalicActive = hasItalic
             isUnderlineActive = hasUnderline
         }
+
+        // Detect list state from current line
+        detectListState(textView: textView)
+    }
+
+    private func detectListState(textView: NSTextView) {
+        let str = textView.string as NSString
+        let cursorLocation = textView.selectedRange().location
+
+        guard cursorLocation <= str.length else {
+            isBulletListActive = false
+            isNumberedListActive = false
+            return
+        }
+
+        // Find the start of the current line
+        let lineRange = str.lineRange(for: NSRange(location: cursorLocation, length: 0))
+        let lineStr = str.substring(with: lineRange)
+
+        let bulletPrefix = "\u{2022} "
+        if lineStr.hasPrefix(bulletPrefix) {
+            isBulletListActive = true
+            isNumberedListActive = false
+            return
+        }
+
+        // Check for numbered list: digits + ". "
+        let numberedPattern = try! NSRegularExpression(pattern: "^\\d+\\. ")
+        let nsLine = lineStr as NSString
+        if numberedPattern.firstMatch(in: lineStr, range: NSRange(location: 0, length: nsLine.length)) != nil {
+            isBulletListActive = false
+            isNumberedListActive = true
+            return
+        }
+
+        isBulletListActive = false
+        isNumberedListActive = false
     }
 
     private func toggleBold() {
@@ -1354,6 +1518,206 @@ struct RichTextToolbar: View {
             textView.typingAttributes[.underlineStyle] = newStyle
         }
 
+        textView.window?.makeFirstResponder(textView)
+        updateFormattingState()
+    }
+
+    // MARK: - List Toggle Methods
+
+    private func toggleBulletList() {
+        guard let textView = textViewHolder.textView,
+              let storage = textView.textStorage else { return }
+
+        let bulletPrefix = "\u{2022} "
+        let numberedPattern = try! NSRegularExpression(pattern: "^\\d+\\. ")
+
+        // Handle empty document
+        if storage.length == 0 {
+            let paraStyle = NSMutableParagraphStyle()
+            paraStyle.headIndent = 14
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 13),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paraStyle
+            ]
+            let prefixStr = NSAttributedString(string: bulletPrefix, attributes: attrs)
+            storage.beginEditing()
+            storage.append(prefixStr)
+            storage.endEditing()
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: bulletPrefix.count, length: 0))
+            textView.typingAttributes = attrs
+            textView.window?.makeFirstResponder(textView)
+            updateFormattingState()
+            return
+        }
+
+        // Expand selection to full line boundaries
+        let str = storage.string as NSString
+        var range = textView.selectedRange()
+        let lineRange = str.lineRange(for: range)
+        range = lineRange
+
+        let linesStr = str.substring(with: range)
+        var lines = linesStr.components(separatedBy: "\n")
+
+        // Check if all non-empty lines already have bullet prefix
+        let nonEmptyLines = lines.filter { !$0.isEmpty }
+        let allHaveBullet = !nonEmptyLines.isEmpty && nonEmptyLines.allSatisfy { $0.hasPrefix(bulletPrefix) }
+
+        if allHaveBullet {
+            // Toggle off: strip bullet prefix
+            lines = lines.map { line in
+                if line.hasPrefix(bulletPrefix) {
+                    return String(line.dropFirst(bulletPrefix.count))
+                }
+                return line
+            }
+        } else {
+            // Apply bullet: strip any existing numbered prefix first, then add bullet
+            lines = lines.map { line in
+                var cleaned = line
+                // Strip numbered prefix if present
+                let nsLine = cleaned as NSString
+                if let match = numberedPattern.firstMatch(in: cleaned, range: NSRange(location: 0, length: nsLine.length)) {
+                    cleaned = nsLine.substring(from: match.range.upperBound)
+                }
+                // Strip bullet prefix if present
+                if cleaned.hasPrefix(bulletPrefix) {
+                    cleaned = String(cleaned.dropFirst(bulletPrefix.count))
+                }
+                return bulletPrefix + cleaned
+            }
+        }
+
+        let newText = lines.joined(separator: "\n")
+        let defaultAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let safeIndex = min(max(range.location, 0), storage.length - 1)
+        let attrs = storage.length > 0 ? storage.attributes(at: safeIndex, effectiveRange: nil) : defaultAttrs
+        let replacement = NSMutableAttributedString(string: newText, attributes: attrs)
+
+        // Apply paragraph style
+        let paraStyle = NSMutableParagraphStyle()
+        if !allHaveBullet {
+            paraStyle.headIndent = 14
+        } else {
+            paraStyle.headIndent = 0
+        }
+        replacement.addAttribute(.paragraphStyle, value: paraStyle, range: NSRange(location: 0, length: replacement.length))
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: range, with: replacement)
+        storage.endEditing()
+        textView.didChangeText()
+
+        // Place cursor at end of modified text
+        textView.setSelectedRange(NSRange(location: range.location + newText.count, length: 0))
+        textView.window?.makeFirstResponder(textView)
+        updateFormattingState()
+    }
+
+    private func toggleNumberedList() {
+        guard let textView = textViewHolder.textView,
+              let storage = textView.textStorage else { return }
+
+        let bulletPrefix = "\u{2022} "
+        let numberedPattern = try! NSRegularExpression(pattern: "^\\d+\\. ")
+
+        // Handle empty document
+        if storage.length == 0 {
+            let firstPrefix = "1. "
+            let paraStyle = NSMutableParagraphStyle()
+            paraStyle.headIndent = 18
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 13),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paraStyle
+            ]
+            let prefixStr = NSAttributedString(string: firstPrefix, attributes: attrs)
+            storage.beginEditing()
+            storage.append(prefixStr)
+            storage.endEditing()
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: firstPrefix.count, length: 0))
+            textView.typingAttributes = attrs
+            textView.window?.makeFirstResponder(textView)
+            updateFormattingState()
+            return
+        }
+
+        // Expand selection to full line boundaries
+        let str = storage.string as NSString
+        var range = textView.selectedRange()
+        let lineRange = str.lineRange(for: range)
+        range = lineRange
+
+        let linesStr = str.substring(with: range)
+        var lines = linesStr.components(separatedBy: "\n")
+
+        // Check if all non-empty lines already have numbered prefix
+        let nonEmptyLines = lines.filter { !$0.isEmpty }
+        let allHaveNumber = !nonEmptyLines.isEmpty && nonEmptyLines.allSatisfy { line in
+            let nsLine = line as NSString
+            return numberedPattern.firstMatch(in: line, range: NSRange(location: 0, length: nsLine.length)) != nil
+        }
+
+        if allHaveNumber {
+            // Toggle off: strip numbered prefix
+            lines = lines.map { line in
+                let nsLine = line as NSString
+                if let match = numberedPattern.firstMatch(in: line, range: NSRange(location: 0, length: nsLine.length)) {
+                    return nsLine.substring(from: match.range.upperBound)
+                }
+                return line
+            }
+        } else {
+            // Apply numbered: strip any existing prefix first, then add numbers
+            var number = 1
+            lines = lines.map { line in
+                var cleaned = line
+                // Strip bullet prefix if present
+                if cleaned.hasPrefix(bulletPrefix) {
+                    cleaned = String(cleaned.dropFirst(bulletPrefix.count))
+                }
+                // Strip numbered prefix if present
+                let nsLine = cleaned as NSString
+                if let match = numberedPattern.firstMatch(in: cleaned, range: NSRange(location: 0, length: nsLine.length)) {
+                    cleaned = nsLine.substring(from: match.range.upperBound)
+                }
+                let result = "\(number). " + cleaned
+                number += 1
+                return result
+            }
+        }
+
+        let newText = lines.joined(separator: "\n")
+        let defaultAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let safeIndex = min(max(range.location, 0), storage.length - 1)
+        let attrs = storage.length > 0 ? storage.attributes(at: safeIndex, effectiveRange: nil) : defaultAttrs
+        let replacement = NSMutableAttributedString(string: newText, attributes: attrs)
+
+        // Apply paragraph style
+        let paraStyle = NSMutableParagraphStyle()
+        if !allHaveNumber {
+            paraStyle.headIndent = 18
+        } else {
+            paraStyle.headIndent = 0
+        }
+        replacement.addAttribute(.paragraphStyle, value: paraStyle, range: NSRange(location: 0, length: replacement.length))
+
+        storage.beginEditing()
+        storage.replaceCharacters(in: range, with: replacement)
+        storage.endEditing()
+        textView.didChangeText()
+
+        // Place cursor at end of modified text
+        textView.setSelectedRange(NSRange(location: range.location + newText.count, length: 0))
         textView.window?.makeFirstResponder(textView)
         updateFormattingState()
     }
@@ -1822,7 +2186,7 @@ struct RichTextToolbar: View {
             if let storage = textView.textStorage,
                let url = storage.attribute(.link, at: range.location, effectiveRange: nil) as? URL {
                 // Pre-fill with existing link data
-                linkURL = url.absoluteString
+                linkURL = url.absoluteString == "xpanda-clipboard://placeholder" ? PlaceholderToken.clipboard.storageText : url.absoluteString
             } else {
                 // New link
                 linkURL = ""
@@ -1837,19 +2201,35 @@ struct RichTextToolbar: View {
 
     private func insertLinkWithDetails() {
         guard let textView = textViewHolder.textView,
-              let url = URL(string: linkURL),
               !linkText.isEmpty else { return }
+
+        let isClipboardURL = linkURL == PlaceholderToken.clipboard.storageText
+
+        // For clipboard URLs, use a special marker URL; otherwise parse normally
+        let linkValue: Any
+        if isClipboardURL {
+            // Store the clipboard token as the URL string so the expansion engine can find it
+            linkValue = URL(string: "xpanda-clipboard://placeholder")!
+        } else {
+            guard let url = URL(string: linkURL) else { return }
+            linkValue = url
+        }
 
         // Use the editing range if we're editing an existing link, otherwise use selection
         let range = editingLinkRange ?? textView.selectedRange()
 
         // Create attributed string with link
-        let attributes: [NSAttributedString.Key: Any] = [
-            .link: url,
+        var attributes: [NSAttributedString.Key: Any] = [
+            .link: linkValue,
             .font: NSFont.systemFont(ofSize: 13),
             .foregroundColor: NSColor.linkColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue
         ]
+
+        // Store a custom attribute to mark this as a clipboard-dynamic link
+        if isClipboardURL {
+            attributes[.init("XpandaClipboardLink")] = true
+        }
 
         let linkAttributedString = NSAttributedString(string: linkText, attributes: attributes)
 
@@ -2161,6 +2541,13 @@ struct LinkInputDialog: View {
     let onInsert: () -> Void
     let onCancel: () -> Void
 
+    @State private var useClipboard: Bool = false
+    @State private var savedURL: String = ""
+
+    private var isClipboardURL: Bool {
+        linkURL == PlaceholderToken.clipboard.storageText
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Text("Insert Link")
@@ -2175,11 +2562,40 @@ struct LinkInputDialog: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("URL")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                TextField("e.g., https://example.com", text: $linkURL)
-                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Text("URL")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Toggle("Use clipboard contents", isOn: $useClipboard)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .onChange(of: useClipboard) { newValue in
+                            if newValue {
+                                savedURL = linkURL
+                                linkURL = PlaceholderToken.clipboard.storageText
+                            } else {
+                                linkURL = savedURL
+                            }
+                        }
+                }
+
+                if useClipboard {
+                    HStack {
+                        ClipboardPillView()
+                        Spacer()
+                    }
+                    .padding(6)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
+                } else {
+                    TextField("e.g., https://example.com", text: $linkURL)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
 
             HStack {
@@ -2200,6 +2616,28 @@ struct LinkInputDialog: View {
         }
         .padding(20)
         .frame(width: 400)
+        .onAppear {
+            if isClipboardURL {
+                useClipboard = true
+            }
+        }
+    }
+}
+
+// SwiftUI pill view matching the clipboard pill appearance from ClipboardAttachmentCell
+struct ClipboardPillView: View {
+    var body: some View {
+        Text("clipboard")
+            .font(.system(size: 11))
+            .foregroundColor(.blue)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 2)
+            .background(Color.blue.opacity(0.15))
+            .overlay(
+                RoundedRectangle(cornerRadius: 9)
+                    .stroke(Color.blue.opacity(0.5), lineWidth: 1)
+            )
+            .cornerRadius(9)
     }
 }
 
