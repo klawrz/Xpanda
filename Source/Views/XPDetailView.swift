@@ -7,6 +7,7 @@ struct XPDetailView: View {
     @State private var keyword: String
     @State private var richTextAttributedString: NSAttributedString
     @State private var outputPlainText: Bool
+    @State private var editorMode: EditorMode
     @State private var tags: [String]
     @State private var folder: String
     @State private var newTag: String = ""
@@ -18,6 +19,7 @@ struct XPDetailView: View {
         self.xp = xp
         _keyword = State(initialValue: xp.keyword)
         _outputPlainText = State(initialValue: xp.outputPlainText)
+        _editorMode = State(initialValue: xp.editorMode)
         _tags = State(initialValue: xp.tags)
         _folder = State(initialValue: xp.folder ?? "")
 
@@ -135,14 +137,18 @@ struct XPDetailView: View {
 
                         Spacer()
 
-                        Toggle("Output as Plain Text", isOn: $outputPlainText)
-                            .toggleStyle(.switch)
-                            .controlSize(.small)
-                            .help("Strip formatting when expanding (for JSON, code, etc.)")
-                            .onChange(of: outputPlainText) { _ in debouncedSave() }
+                        Picker("", selection: $editorMode) {
+                            Text("Rich Text").tag(EditorMode.richText)
+                            Text("Code").tag(EditorMode.code)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 180)
+                        .onChange(of: editorMode) { _ in
+                            debouncedSave()
+                        }
                     }
 
-                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString)
+                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString, editorMode: $editorMode)
                         .frame(minHeight: 200)
                         .onChange(of: richTextAttributedString) { _ in debouncedSave() }
                 }
@@ -366,7 +372,8 @@ struct XPDetailView: View {
         updatedXP.expansion = expansionText
         updatedXP.isRichText = true
         updatedXP.richTextData = richTextData
-        updatedXP.outputPlainText = outputPlainText
+        updatedXP.editorMode = editorMode
+        updatedXP.outputPlainText = (editorMode == .code)
         updatedXP.isVariable = isVariable
         updatedXP.tags = tags
         updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder

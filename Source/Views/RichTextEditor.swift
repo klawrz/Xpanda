@@ -29,6 +29,7 @@ struct VariableClickData: Equatable {
 
 struct RichTextEditorWithToolbar: View {
     @Binding var attributedString: NSAttributedString
+    @Binding var editorMode: EditorMode
     @StateObject private var textViewHolder = RichTextViewHolder()
     @State private var linkClickedAt: Int? = nil
     @State private var fillInClickedData: FillInClickData? = nil
@@ -38,9 +39,10 @@ struct RichTextEditorWithToolbar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            RichTextToolbar(textViewHolder: textViewHolder, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData, dateClickedData: $dateClickedData, timeClickedData: $timeClickedData, variableClickedData: $variableClickedData)
+            RichTextToolbar(textViewHolder: textViewHolder, editorMode: editorMode, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData, dateClickedData: $dateClickedData, timeClickedData: $timeClickedData, variableClickedData: $variableClickedData)
             RichTextEditor(
                 attributedString: $attributedString,
+                editorMode: editorMode,
                 textViewHolder: textViewHolder,
                 linkClickedAt: $linkClickedAt,
                 fillInClickedData: $fillInClickedData,
@@ -55,6 +57,88 @@ struct RichTextEditorWithToolbar: View {
 
 // Custom NSTextView subclass to override paste behavior and link clicking
 class XpandaTextView: NSTextView {
+    var isCodeMode: Bool = false {
+        didSet {
+            if isCodeMode != oldValue {
+                invalidateTextContainerOrigin()
+                needsDisplay = true
+            }
+        }
+    }
+
+    private let gutterWidth: CGFloat = 40
+
+    override var textContainerOrigin: NSPoint {
+        var origin = super.textContainerOrigin
+        if isCodeMode {
+            origin.x += gutterWidth
+        }
+        return origin
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard isCodeMode, let layoutManager = layoutManager, let textContainer = textContainer else { return }
+
+        let visibleRect = enclosingScrollView?.contentView.bounds ?? bounds
+
+        // Draw gutter background
+        let gutterRect = NSRect(x: 0, y: visibleRect.origin.y, width: gutterWidth, height: visibleRect.height)
+        NSColor.textBackgroundColor.setFill()
+        gutterRect.fill()
+
+        // Draw separator line
+        NSColor.separatorColor.setStroke()
+        let separator = NSBezierPath()
+        separator.move(to: NSPoint(x: gutterWidth - 0.5, y: visibleRect.origin.y))
+        separator.line(to: NSPoint(x: gutterWidth - 0.5, y: visibleRect.maxY))
+        separator.lineWidth = 1
+        separator.stroke()
+
+        // Draw line numbers
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+
+        let text = string as NSString
+        let origin = textContainerOrigin
+        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+        guard visibleGlyphRange.location != NSNotFound else { return }
+        let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
+
+        // Count newlines before visible range to get starting line number
+        var lineNumber = 1
+        if visibleCharRange.location > 0 {
+            lineNumber = text.substring(to: visibleCharRange.location).components(separatedBy: "\n").count
+        }
+
+        layoutManager.enumerateLineFragments(forGlyphRange: visibleGlyphRange) { lineRect, usedRect, container, glyphRange, stop in
+            let charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+
+            // Only draw for the first fragment of each logical line (not wrapped continuations)
+            let isNewLogicalLine = charRange.location == 0 ||
+                (charRange.location > 0 && text.substring(with: NSRange(location: charRange.location - 1, length: 1)) == "\n")
+
+            if isNewLogicalLine {
+                let lineStr = "\(lineNumber)"
+                let lineSize = lineStr.size(withAttributes: attrs)
+                let yPos = lineRect.origin.y + origin.y + (lineRect.height - lineSize.height) / 2
+                let xPos = self.gutterWidth - 8 - lineSize.width
+                lineStr.draw(at: NSPoint(x: xPos, y: yPos), withAttributes: attrs)
+                lineNumber += 1
+            }
+        }
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        if isCodeMode {
+            needsDisplay = true
+        }
+    }
+
     override func paste(_ sender: Any?) {
         // Get plain text from pasteboard
         let pasteboard = NSPasteboard.general
@@ -64,8 +148,11 @@ class XpandaTextView: NSTextView {
         }
 
         // Create attributed string with Xpanda's default attributes
+        let font: NSFont = isCodeMode
+            ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            : NSFont.systemFont(ofSize: 13)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13),
+            .font: font,
             .foregroundColor: NSColor.labelColor
         ]
         let attributedString = NSAttributedString(string: plainText, attributes: attributes)
@@ -100,6 +187,9 @@ class XpandaTextView: NSTextView {
         guard event.modifierFlags.contains(.command) else {
             return super.performKeyEquivalent(with: event)
         }
+
+        // Skip formatting shortcuts in code mode
+        if isCodeMode { return super.performKeyEquivalent(with: event) }
 
         // Get the key pressed
         guard let characters = event.charactersIgnoringModifiers else {
@@ -524,8 +614,11 @@ class XpandaTextView: NSTextView {
     }
 }
 
+// MARK: - Line Number Ruler View (Code Mode)
+
 struct RichTextEditor: NSViewRepresentable {
     @Binding var attributedString: NSAttributedString
+    var editorMode: EditorMode = .richText
     @ObservedObject var textViewHolder: RichTextViewHolder
     @Binding var linkClickedAt: Int?
     @Binding var fillInClickedData: FillInClickData?
@@ -560,33 +653,51 @@ struct RichTextEditor: NSViewRepresentable {
 
         scrollView.documentView = textView
 
+        let isCode = editorMode == .code
+        let defaultFont: NSFont = isCode
+            ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            : NSFont.systemFont(ofSize: 13)
+
         textView.delegate = context.coordinator
         textView.textStorage?.delegate = context.coordinator
         textView.isRichText = true
         textView.allowsUndo = true
         textView.isEditable = isEditable
         textView.isSelectable = true
-        textView.font = .systemFont(ofSize: 13)
+        textView.font = defaultFont
         textView.textColor = .labelColor
         textView.backgroundColor = .textBackgroundColor
         textView.textContainerInset = NSSize(width: 8, height: 8)
-        textView.usesFontPanel = true
+        textView.usesFontPanel = !isCode
         textView.usesRuler = false
         textView.importsGraphics = false
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
+        textView.isCodeMode = isCode
 
         // Disable automatic link detection
         textView.isAutomaticLinkDetectionEnabled = false
 
-        // Set initial content
-        textView.textStorage?.setAttributedString(attributedString)
+        // Set initial content — convert fonts for code mode
+        if isCode {
+            let mutable = NSMutableAttributedString(attributedString: attributedString)
+            let fullRange = NSRange(location: 0, length: mutable.length)
+            mutable.enumerateAttributes(in: fullRange, options: []) { attrs, range, _ in
+                if attrs[.attachment] != nil { return }
+                mutable.addAttribute(.font, value: defaultFont, range: range)
+                mutable.removeAttribute(.underlineStyle, range: range)
+                mutable.removeAttribute(.link, range: range)
+            }
+            textView.textStorage?.setAttributedString(mutable)
+        } else {
+            textView.textStorage?.setAttributedString(attributedString)
+        }
 
         // Set typing attributes to match text view defaults
         // This ensures pasted text and typed text use the same style
         textView.typingAttributes = [
-            .font: NSFont.systemFont(ofSize: 13),
+            .font: defaultFont,
             .foregroundColor: NSColor.labelColor
         ]
 
@@ -622,6 +733,50 @@ struct RichTextEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? XpandaTextView else { return }
 
+        // Detect editor mode change and reconfigure in-place
+        let isCode = editorMode == .code
+        if textView.isCodeMode != isCode {
+            let newFont: NSFont = isCode
+                ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+                : NSFont.systemFont(ofSize: 13)
+
+            // Build a converted copy from the current text view content
+            let mutable = NSMutableAttributedString(attributedString: textView.attributedString())
+            let fullRange = NSRange(location: 0, length: mutable.length)
+            mutable.enumerateAttributes(in: fullRange, options: []) { attrs, range, _ in
+                if attrs[.attachment] != nil { return }
+                mutable.addAttribute(.font, value: newFont, range: range)
+                if isCode {
+                    mutable.removeAttribute(.underlineStyle, range: range)
+                    mutable.removeAttribute(.link, range: range)
+                }
+            }
+
+            // Replace entire text storage with the converted copy
+            let selectedRange = textView.selectedRange()
+            let coordinator = context.coordinator
+            coordinator.isSuppressingUpdates = true
+            textView.textStorage?.setAttributedString(mutable)
+            coordinator.isSuppressingUpdates = false
+
+            if selectedRange.location <= mutable.length {
+                textView.setSelectedRange(selectedRange)
+            }
+
+            // Now update mode flag (triggers gutter layout via didSet)
+            textView.isCodeMode = isCode
+            textView.usesFontPanel = !isCode
+            textView.typingAttributes = [
+                .font: newFont,
+                .foregroundColor: NSColor.labelColor
+            ]
+
+            // Sync binding so saved data reflects the font change
+            DispatchQueue.main.async {
+                self.attributedString = textView.attributedString()
+            }
+        }
+
         // Only update if content is different to avoid cursor jumping
         // Compare by string content rather than the entire attributed string
         if textView.string != attributedString.string {
@@ -654,18 +809,21 @@ struct RichTextEditor: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
         var parent: RichTextEditor
+        var isSuppressingUpdates = false
 
         init(_ parent: RichTextEditor) {
             self.parent = parent
         }
 
         func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
+            guard !isSuppressingUpdates,
+                  let textView = notification.object as? NSTextView else { return }
             parent.attributedString = textView.attributedString()
         }
 
         // This gets called when attributes change (bold, italic, underline)
         func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int) {
+            guard !isSuppressingUpdates else { return }
             if editedMask.contains(.editedAttributes) || editedMask.contains(.editedCharacters) {
                 // When text is deleted, invalidate display after a short delay to prevent ghost text
                 // without interfering with cursor positioning
@@ -719,6 +877,9 @@ struct RichTextEditor: NSViewRepresentable {
 
         // Handle Enter key for list continuation
         func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            // Skip list continuation in code mode
+            if parent.editorMode == .code { return true }
+
             guard let replacement = replacementString, replacement == "\n",
                   let storage = textView.textStorage else {
                 return true
@@ -851,8 +1012,11 @@ struct RichTextEditor: NSViewRepresentable {
 
                 // Reset typing attributes if we're adjacent to an attachment
                 if shouldResetAttributes {
+                    let font: NSFont = parent.editorMode == .code
+                        ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+                        : NSFont.systemFont(ofSize: 13)
                     textView.typingAttributes = [
-                        .font: NSFont.systemFont(ofSize: 13),
+                        .font: font,
                         .foregroundColor: NSColor.labelColor
                     ]
                 }
@@ -864,6 +1028,7 @@ struct RichTextEditor: NSViewRepresentable {
 // Formatting toolbar for rich text
 struct RichTextToolbar: View {
     @ObservedObject var textViewHolder: RichTextViewHolder
+    var editorMode: EditorMode = .richText
     @Binding var linkClickedAt: Int?
     @Binding var fillInClickedData: FillInClickData?
     @Binding var dateClickedData: DateClickData?
@@ -909,114 +1074,118 @@ struct RichTextToolbar: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            // Bold
-            Button(action: { toggleBold() }) {
-                Image(systemName: "bold")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(isBoldActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Bold (⌘B)")
-
-            // Italic
-            Button(action: { toggleItalic() }) {
-                Image(systemName: "italic")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(isItalicActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Italic (⌘I)")
-
-            // Underline
-            Button(action: { toggleUnderline() }) {
-                Image(systemName: "underline")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(isUnderlineActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Underline (⌘U)")
-
-            // Lists Menu
-            Menu {
-                Button { toggleBulletList() } label: {
-                    Label("Bullet List", systemImage: "list.bullet")
+            Group {
+                // Bold
+                Button(action: { toggleBold() }) {
+                    Image(systemName: "bold")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
                 }
-                Button { toggleNumberedList() } label: {
-                    Label("Numbered List", systemImage: "list.number")
+                .buttonStyle(.plain)
+                .background(isBoldActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Bold (⌘B)")
+
+                // Italic
+                Button(action: { toggleItalic() }) {
+                    Image(systemName: "italic")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .background(isItalicActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Italic (⌘I)")
+
+                // Underline
+                Button(action: { toggleUnderline() }) {
+                    Image(systemName: "underline")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(isUnderlineActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Underline (⌘U)")
+
+                // Lists Menu
+                Menu {
+                    Button { toggleBulletList() } label: {
+                        Label("Bullet List", systemImage: "list.bullet")
+                    }
+                    Button { toggleNumberedList() } label: {
+                        Label("Numbered List", systemImage: "list.number")
+                    }
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .background((isBulletListActive || isNumberedListActive) ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Lists")
+
+                Divider()
+                    .frame(height: 16)
+
+                // Insert Date
+                Button(action: {
+                    // Clear form and show dialog
+                    dateYearFormat = ""
+                    dateMonthFormat = ""
+                    dateDayFormat = ""
+                    dateWeekdayFormat = ""
+                    dateSeparator = ""  // Will be set from parsed preview
+                    editingDateRange = nil
+                    showingDateConfigDialog = true
+                }) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Insert Date")
+
+                // Insert Time
+                Button(action: {
+                    // Clear form and show dialog
+                    timeHourFormat = ""
+                    timeMinuteFormat = ""
+                    timeSecondFormat = ""
+                    timeAMPMFormat = ""
+                    timeSeparator = ""  // Will be set from parsed preview
+                    editingTimeRange = nil
+                    showingTimeConfigDialog = true
+                }) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Insert Time")
             }
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .background((isBulletListActive || isNumberedListActive) ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Lists")
+            .disabled(editorMode == .code)
+            .opacity(editorMode == .code ? 0.4 : 1.0)
 
-            Divider()
-                .frame(height: 16)
-
-            // Insert Date
-            Button(action: {
-                // Clear form and show dialog
-                dateYearFormat = ""
-                dateMonthFormat = ""
-                dateDayFormat = ""
-                dateWeekdayFormat = ""
-                dateSeparator = ""  // Will be set from parsed preview
-                editingDateRange = nil
-                showingDateConfigDialog = true
-            }) {
-                Image(systemName: "calendar")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Insert Date")
-
-            // Insert Time
-            Button(action: {
-                // Clear form and show dialog
-                timeHourFormat = ""
-                timeMinuteFormat = ""
-                timeSecondFormat = ""
-                timeAMPMFormat = ""
-                timeSeparator = ""  // Will be set from parsed preview
-                editingTimeRange = nil
-                showingTimeConfigDialog = true
-            }) {
-                Image(systemName: "clock")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Insert Time")
-
-            // Insert Clipboard
+            // Insert Clipboard (always visible)
             Button(action: { insertClipboard() }) {
                 Image(systemName: "doc.on.clipboard")
                     .font(.system(size: 15))
@@ -1032,7 +1201,7 @@ struct RichTextToolbar: View {
             Divider()
                 .frame(height: 16)
 
-            // Position Cursor
+            // Position Cursor (always visible)
             Button(action: { positionCursor() }) {
                 CursorIconView()
                     .frame(width: 38, height: 32)
@@ -1043,57 +1212,61 @@ struct RichTextToolbar: View {
             .cornerRadius(6)
             .help("Position Cursor Here")
 
-            // Insert Fill-In Menu
-            Menu {
-                Button("Single") {
-                    insertFillIn(type: .single)
+            Group {
+                // Insert Fill-In Menu
+                Menu {
+                    Button("Single") {
+                        insertFillIn(type: .single)
+                    }
+                    Button("Multi") {
+                        insertFillIn(type: .multi)
+                    }
+                    Button("Select") {
+                        insertFillIn(type: .select)
+                    }
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
                 }
-                Button("Multi") {
-                    insertFillIn(type: .multi)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Insert Fill-In")
+
+                // Insert Link
+                Button(action: { insertLink() }) {
+                    Image(systemName: "link")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
                 }
-                Button("Select") {
-                    insertFillIn(type: .select)
+                .buttonStyle(.plain)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Insert Link")
+
+                // Insert Image
+                Button(action: { selectAndInsertImage() }) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Insert Image")
             }
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Insert Fill-In")
+            .disabled(editorMode == .code)
+            .opacity(editorMode == .code ? 0.4 : 1.0)
 
-            // Insert Link
-            Button(action: { insertLink() }) {
-                Image(systemName: "link")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Insert Link")
-
-            // Insert Image
-            Button(action: { selectAndInsertImage() }) {
-                Image(systemName: "photo")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Insert Image")
-
-            // Insert Variable
+            // Insert Variable (always visible)
             Menu {
                 let variables = XPManager.shared.allVariables
                 if variables.isEmpty {
@@ -1418,6 +1591,12 @@ struct RichTextToolbar: View {
 
         isBulletListActive = false
         isNumberedListActive = false
+    }
+
+    private var defaultFont: NSFont {
+        editorMode == .code
+            ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            : NSFont.systemFont(ofSize: 13)
     }
 
     private func toggleBold() {
@@ -1966,9 +2145,10 @@ struct RichTextToolbar: View {
             textView.setSelectedRange(NSRange(location: newLocation, length: 0))
 
             // Ensure typing attributes are reset to default
+            let font = defaultFont
             DispatchQueue.main.async {
                 textView.typingAttributes = [
-                    .font: NSFont.systemFont(ofSize: 13),
+                    .font: font,
                     .foregroundColor: NSColor.labelColor
                 ]
             }
@@ -1996,9 +2176,10 @@ struct RichTextToolbar: View {
             textView.setSelectedRange(NSRange(location: newLocation, length: 0))
 
             // Ensure typing attributes are reset to default
+            let font = defaultFont
             DispatchQueue.main.async {
                 textView.typingAttributes = [
-                    .font: NSFont.systemFont(ofSize: 13),
+                    .font: font,
                     .foregroundColor: NSColor.labelColor
                 ]
             }
@@ -2025,9 +2206,10 @@ struct RichTextToolbar: View {
             textView.setSelectedRange(NSRange(location: newLocation, length: 0))
 
             // Reset typing attributes to default
+            let font = defaultFont
             DispatchQueue.main.async {
                 textView.typingAttributes = [
-                    .font: NSFont.systemFont(ofSize: 13),
+                    .font: font,
                     .foregroundColor: NSColor.labelColor
                 ]
             }

@@ -850,6 +850,11 @@ class XPHelper {
     }
 }
 
+enum EditorMode: String, Codable {
+    case richText = "richText"
+    case code = "code"
+}
+
 struct XP: Identifiable, Codable, Equatable, Hashable {
     var id: UUID
     var keyword: String
@@ -857,6 +862,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
     var isRichText: Bool
     var richTextData: Data? // Stores RTF data when isRichText is true
     var outputPlainText: Bool = false // If true, strip formatting when expanding (for JSON, code, etc.)
+    var editorMode: EditorMode = .richText
     var isVariable: Bool = false // If true, this is a reusable variable (keyword must start with %)
     var tags: [String]
     var folder: String?
@@ -865,7 +871,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
 
     // Custom decoding to handle backward compatibility
     enum CodingKeys: String, CodingKey {
-        case id, keyword, expansion, isRichText, richTextData, outputPlainText, isVariable, tags, folder, dateCreated, dateModified
+        case id, keyword, expansion, isRichText, richTextData, outputPlainText, editorMode, isVariable, tags, folder, dateCreated, dateModified
     }
 
     init(from decoder: Decoder) throws {
@@ -876,6 +882,8 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         isRichText = try container.decode(Bool.self, forKey: .isRichText)
         richTextData = try container.decodeIfPresent(Data.self, forKey: .richTextData)
         outputPlainText = try container.decodeIfPresent(Bool.self, forKey: .outputPlainText) ?? false
+        editorMode = try container.decodeIfPresent(EditorMode.self, forKey: .editorMode)
+            ?? (outputPlainText ? .code : .richText)
         isVariable = try container.decodeIfPresent(Bool.self, forKey: .isVariable) ?? false
         tags = try container.decode([String].self, forKey: .tags)
         folder = try container.decodeIfPresent(String.self, forKey: .folder)
@@ -890,6 +898,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         isRichText: Bool = false,
         richTextData: Data? = nil,
         outputPlainText: Bool = false,
+        editorMode: EditorMode = .richText,
         isVariable: Bool = false,
         tags: [String] = [],
         folder: String? = nil,
@@ -902,6 +911,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         self.isRichText = isRichText
         self.richTextData = richTextData
         self.outputPlainText = outputPlainText
+        self.editorMode = editorMode
         self.isVariable = isVariable
         self.tags = tags
         self.folder = folder

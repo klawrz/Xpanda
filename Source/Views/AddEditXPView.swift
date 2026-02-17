@@ -20,6 +20,7 @@ struct AddEditXPView: View {
     @State private var keyword: String = ""
     @State private var richTextAttributedString: NSAttributedString = NSAttributedString()
     @State private var outputPlainText: Bool = false
+    @State private var editorMode: EditorMode = .richText
     @State private var tags: [String] = []
     @State private var newTag: String = ""
     @State private var folder: String = ""
@@ -37,6 +38,7 @@ struct AddEditXPView: View {
         case .edit(let xp):
             _keyword = State(initialValue: xp.keyword)
             _outputPlainText = State(initialValue: xp.outputPlainText)
+            _editorMode = State(initialValue: xp.editorMode)
             _tags = State(initialValue: xp.tags)
             _folder = State(initialValue: xp.folder ?? "")
 
@@ -89,7 +91,13 @@ struct AddEditXPView: View {
                 }
 
                 Section("Expansion") {
-                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString)
+                    Picker("", selection: $editorMode) {
+                        Text("Rich Text").tag(EditorMode.richText)
+                        Text("Code").tag(EditorMode.code)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 180)
+                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString, editorMode: $editorMode)
                         .frame(minHeight: 150)
                 }
 
@@ -262,7 +270,8 @@ struct AddEditXPView: View {
                 expansion: expansionText,
                 isRichText: true,
                 richTextData: richTextData,
-                outputPlainText: outputPlainText,
+                outputPlainText: (editorMode == .code),
+                editorMode: editorMode,
                 tags: tags,
                 folder: trimmedFolder.isEmpty ? nil : trimmedFolder
             )
@@ -274,7 +283,8 @@ struct AddEditXPView: View {
             updatedXP.expansion = expansionText
             updatedXP.isRichText = true
             updatedXP.richTextData = richTextData
-            updatedXP.outputPlainText = outputPlainText
+            updatedXP.editorMode = editorMode
+            updatedXP.outputPlainText = (editorMode == .code)
             updatedXP.tags = tags
             updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder
             xpManager.update(updatedXP)
