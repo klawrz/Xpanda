@@ -1135,108 +1135,6 @@ struct RichTextToolbar: View {
                 .cornerRadius(6)
                 .help("Lists")
 
-                Divider()
-                    .frame(height: 16)
-
-                // Insert Date
-                Button(action: {
-                    // Clear form and show dialog
-                    dateYearFormat = ""
-                    dateMonthFormat = ""
-                    dateDayFormat = ""
-                    dateWeekdayFormat = ""
-                    dateSeparator = ""  // Will be set from parsed preview
-                    editingDateRange = nil
-                    showingDateConfigDialog = true
-                }) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Insert Date")
-
-                // Insert Time
-                Button(action: {
-                    // Clear form and show dialog
-                    timeHourFormat = ""
-                    timeMinuteFormat = ""
-                    timeSecondFormat = ""
-                    timeAMPMFormat = ""
-                    timeSeparator = ""  // Will be set from parsed preview
-                    editingTimeRange = nil
-                    showingTimeConfigDialog = true
-                }) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Insert Time")
-            }
-            .disabled(editorMode == .code)
-            .opacity(editorMode == .code ? 0.4 : 1.0)
-
-            // Insert Clipboard (always visible)
-            Button(action: { insertClipboard() }) {
-                Image(systemName: "doc.on.clipboard")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Insert Clipboard")
-
-            Divider()
-                .frame(height: 16)
-
-            // Position Cursor (always visible)
-            Button(action: { positionCursor() }) {
-                CursorIconView()
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Position Cursor Here")
-
-            Group {
-                // Insert Fill-In Menu
-                Menu {
-                    Button("Single") {
-                        insertFillIn(type: .single)
-                    }
-                    Button("Multi") {
-                        insertFillIn(type: .multi)
-                    }
-                    Button("Select") {
-                        insertFillIn(type: .select)
-                    }
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Insert Fill-In")
-
                 // Insert Link
                 Button(action: { insertLink() }) {
                     Image(systemName: "link")
@@ -1265,6 +1163,103 @@ struct RichTextToolbar: View {
             }
             .disabled(editorMode == .code)
             .opacity(editorMode == .code ? 0.4 : 1.0)
+
+            Divider()
+                .frame(height: 16)
+
+            Group {
+                // Insert Date
+                Button(action: {
+                    dateYearFormat = ""
+                    dateMonthFormat = ""
+                    dateDayFormat = ""
+                    dateWeekdayFormat = ""
+                    dateSeparator = ""
+                    editingDateRange = nil
+                    showingDateConfigDialog = true
+                }) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Insert Date")
+
+                // Insert Time
+                Button(action: {
+                    timeHourFormat = ""
+                    timeMinuteFormat = ""
+                    timeSecondFormat = ""
+                    timeAMPMFormat = ""
+                    timeSeparator = ""
+                    editingTimeRange = nil
+                    showingTimeConfigDialog = true
+                }) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Insert Time")
+
+                // Insert Fill-In Menu
+                Menu {
+                    Button("Single") {
+                        insertFillIn(type: .single)
+                    }
+                    Button("Multi") {
+                        insertFillIn(type: .multi)
+                    }
+                    Button("Select") {
+                        insertFillIn(type: .select)
+                    }
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help("Insert Fill-In")
+            }
+            .disabled(editorMode == .code)
+            .opacity(editorMode == .code ? 0.4 : 1.0)
+
+            // Position Cursor (always visible)
+            Button(action: { positionCursor() }) {
+                CursorIconView()
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Position Cursor Here")
+
+            // Insert Clipboard (always visible)
+            Button(action: { insertClipboard() }) {
+                Image(systemName: "doc.on.clipboard")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Insert Clipboard")
 
             // Insert Variable (always visible)
             Menu {
