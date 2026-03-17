@@ -1,4 +1,9 @@
 import SwiftUI
+import UserNotifications
+
+extension Notification.Name {
+    static let createXPFromSuggestion = Notification.Name("createXPFromSuggestion")
+}
 
 @main
 struct XpandaApp: App {
@@ -28,7 +33,7 @@ struct XpandaApp: App {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     var expansionEngine: ExpansionEngine?
     static var aboutWindow: NSWindow?
 
@@ -52,6 +57,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+
         // Initialize the expansion engine
         expansionEngine = ExpansionEngine.shared
         expansionEngine?.start()
@@ -59,5 +66,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         expansionEngine?.stop()
+        PhraseSuggestionTracker.shared.save()
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if response.actionIdentifier == "CREATE_XP_ACTION" {
+            if let phrase = response.notification.request.content.userInfo["suggestedPhrase"] as? String {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                NotificationCenter.default.post(
+                    name: .createXPFromSuggestion,
+                    object: nil,
+                    userInfo: ["phrase": phrase]
+                )
+            }
+        }
+        completionHandler()
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 }

@@ -10,8 +10,10 @@ struct XPDetailView: View {
     @State private var editorMode: EditorMode
     @State private var tags: [String]
     @State private var folder: String
+    @State private var rephraseEnabled: Bool
     @State private var newTag: String = ""
     @State private var showingReferences = false
+    @State private var showingConflicts = false
 
     @State private var saveTask: Task<Void, Never>?
 
@@ -22,6 +24,7 @@ struct XPDetailView: View {
         _editorMode = State(initialValue: xp.editorMode)
         _tags = State(initialValue: xp.tags)
         _folder = State(initialValue: xp.folder ?? "")
+        _rephraseEnabled = State(initialValue: xp.rephraseEnabled)
 
         // Load rich text data if available, otherwise convert plain text
         if xp.isRichText, let attributedStr = xp.attributedString {
@@ -101,14 +104,21 @@ struct XPDetailView: View {
                             }
 
                         if hasConflict {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
-                                .help(conflictMessage)
+                            Button(action: { showingConflicts = true }) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                            }
+                            .buttonStyle(.plain)
+                            .help(conflictMessage)
                         }
                     }
                     .padding(12)
                     .background(Color(NSColor.controlBackgroundColor))
                     .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
 
                     // Show variable indicator if keyword starts with %
                     if keyword.hasPrefix("%") {
@@ -148,9 +158,32 @@ struct XPDetailView: View {
                         }
                     }
 
-                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString, editorMode: $editorMode)
+                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString, editorMode: $editorMode, rephraseEnabled: $rephraseEnabled)
                         .frame(minHeight: 200)
                         .onChange(of: richTextAttributedString) { _ in debouncedSave() }
+                        .onChange(of: rephraseEnabled) { _ in debouncedSave() }
+
+                    if rephraseEnabled {
+                        if LLMRephraseService.shared.isConfigured {
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                                Text("Message will be rephrased by AI to avoid repetition")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
+                        } else {
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles")
+                                    .foregroundColor(.orange)
+                                    .font(.caption)
+                                Text("No API key configured. AI Rephrasing will not run. Go to Settings > AI to add one.")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                    }
                 }
 
                 Divider()
@@ -239,6 +272,8 @@ struct XPDetailView: View {
                     }
                 }
 
+
+
                 // Variable Usage Section (only for variables)
                 if xp.isVariable {
                     Divider()
@@ -318,6 +353,10 @@ struct XPDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(xp.isVariable ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.08) : Color(white: 1.0, opacity: 0.03))
+        .sheet(isPresented: $showingConflicts) {
+            ConflictView()
+                .environmentObject(xpManager)
+        }
     }
 
     private var isValid: Bool {
@@ -377,6 +416,7 @@ struct XPDetailView: View {
         updatedXP.isVariable = isVariable
         updatedXP.tags = tags
         updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder
+        updatedXP.rephraseEnabled = rephraseEnabled
 
         xpManager.update(updatedXP)
     }

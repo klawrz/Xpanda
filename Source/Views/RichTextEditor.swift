@@ -30,6 +30,7 @@ struct VariableClickData: Equatable {
 struct RichTextEditorWithToolbar: View {
     @Binding var attributedString: NSAttributedString
     @Binding var editorMode: EditorMode
+    var rephraseEnabled: Binding<Bool>? = nil
     @StateObject private var textViewHolder = RichTextViewHolder()
     @State private var linkClickedAt: Int? = nil
     @State private var fillInClickedData: FillInClickData? = nil
@@ -39,7 +40,7 @@ struct RichTextEditorWithToolbar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            RichTextToolbar(textViewHolder: textViewHolder, editorMode: editorMode, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData, dateClickedData: $dateClickedData, timeClickedData: $timeClickedData, variableClickedData: $variableClickedData)
+            RichTextToolbar(textViewHolder: textViewHolder, editorMode: editorMode, rephraseEnabled: rephraseEnabled, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData, dateClickedData: $dateClickedData, timeClickedData: $timeClickedData, variableClickedData: $variableClickedData)
             RichTextEditor(
                 attributedString: $attributedString,
                 editorMode: editorMode,
@@ -50,8 +51,12 @@ struct RichTextEditorWithToolbar: View {
                 timeClickedData: $timeClickedData,
                 variableClickedData: $variableClickedData
             )
-                .border(Color.secondary.opacity(0.2))
         }
+        .cornerRadius(6)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+        )
     }
 }
 
@@ -137,6 +142,22 @@ class XpandaTextView: NSTextView {
         if isCodeMode {
             needsDisplay = true
         }
+
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        // Before inserting text, strip any link attributes that bled into typingAttributes
+        if !isCodeMode {
+            var attrs = typingAttributes
+            let needsReset = attrs[.link] != nil ||
+                (attrs[.foregroundColor] as? NSColor)?.isEqual(NSColor.linkColor) == true
+            if needsReset {
+                attrs.removeValue(forKey: .link)
+                attrs[.foregroundColor] = NSColor.labelColor
+                typingAttributes = attrs
+            }
+        }
+        super.insertText(string, replacementRange: replacementRange)
     }
 
     override func paste(_ sender: Any?) {
@@ -145,6 +166,34 @@ class XpandaTextView: NSTextView {
         guard let plainText = pasteboard.string(forType: .string), !plainText.isEmpty else {
             super.paste(sender)
             return
+        }
+
+        let range = self.selectedRange()
+
+        // If text is selected and clipboard contains a URL, auto-create a hyperlink
+        if !isCodeMode && range.length > 0 {
+            let trimmed = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = URL(string: trimmed),
+               let scheme = url.scheme?.lowercased(),
+               ["http", "https", "mailto"].contains(scheme) {
+                let selectedText = (self.string as NSString).substring(with: range)
+                let linkAttributes: [NSAttributedString.Key: Any] = [
+                    .link: url,
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: NSColor.linkColor
+                ]
+                let linkString = NSAttributedString(string: selectedText, attributes: linkAttributes)
+                if self.shouldChangeText(in: range, replacementString: selectedText) {
+                    self.textStorage?.replaceCharacters(in: range, with: linkString)
+                    self.didChangeText()
+                    self.setSelectedRange(NSRange(location: range.location + selectedText.count, length: 0))
+                    self.typingAttributes = [
+                        .font: NSFont.systemFont(ofSize: 13),
+                        .foregroundColor: NSColor.labelColor
+                    ]
+                }
+                return
+            }
         }
 
         // Create attributed string with Xpanda's default attributes
@@ -158,7 +207,6 @@ class XpandaTextView: NSTextView {
         let attributedString = NSAttributedString(string: plainText, attributes: attributes)
 
         // Insert at current location
-        let range = self.selectedRange()
         if self.shouldChangeText(in: range, replacementString: plainText) {
             self.textStorage?.replaceCharacters(in: range, with: attributedString)
             self.didChangeText()
@@ -679,6 +727,12 @@ struct RichTextEditor: NSViewRepresentable {
         // Disable automatic link detection
         textView.isAutomaticLinkDetectionEnabled = false
 
+        // Remove default underline from links — users can add underline manually
+        textView.linkTextAttributes = [
+            .foregroundColor: NSColor.linkColor,
+            .cursor: NSCursor.pointingHand
+        ]
+
         // Set initial content — convert fonts for code mode
         if isCode {
             let mutable = NSMutableAttributedString(attributedString: attributedString)
@@ -1029,6 +1083,7 @@ struct RichTextEditor: NSViewRepresentable {
 struct RichTextToolbar: View {
     @ObservedObject var textViewHolder: RichTextViewHolder
     var editorMode: EditorMode = .richText
+    var rephraseEnabled: Binding<Bool>? = nil
     @Binding var linkClickedAt: Int?
     @Binding var fillInClickedData: FillInClickData?
     @Binding var dateClickedData: DateClickData?
@@ -1286,6 +1341,24 @@ struct RichTextToolbar: View {
             .background(Color.gray.opacity(0.1))
             .cornerRadius(6)
             .help("Insert Variable")
+
+            // AI Rephrase toggle (only shown when binding is provided)
+            if let rephraseBinding = rephraseEnabled {
+                Divider()
+                    .frame(height: 16)
+
+                Button(action: { rephraseBinding.wrappedValue.toggle() }) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 15))
+                        .foregroundColor(rephraseBinding.wrappedValue ? .purple : .primary)
+                        .frame(width: 38, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(rephraseBinding.wrappedValue ? Color.purple.opacity(0.2) : Color.gray.opacity(0.1))
+                .cornerRadius(6)
+                .help(rephraseBinding.wrappedValue ? "AI Rephrase enabled" : "AI Rephrase disabled")
+            }
 
             Spacer()
         }
@@ -2399,8 +2472,7 @@ struct RichTextToolbar: View {
         var attributes: [NSAttributedString.Key: Any] = [
             .link: linkValue,
             .font: NSFont.systemFont(ofSize: 13),
-            .foregroundColor: NSColor.linkColor,
-            .underlineStyle: NSUnderlineStyle.single.rawValue
+            .foregroundColor: NSColor.linkColor
         ]
 
         // Store a custom attribute to mark this as a clipboard-dynamic link
@@ -2893,7 +2965,11 @@ struct MultiLineFillInDialog: View {
                 TextEditor(text: $defaultValue)
                     .font(.system(size: 13))
                     .frame(height: 100)
-                    .border(Color.secondary.opacity(0.2))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
             }
 
             HStack {

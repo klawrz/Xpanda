@@ -22,6 +22,13 @@
 		BF14B0CE2ED28B8400C4BF8D /* XPProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0CD2ED28B8400C4BF8D /* XPProgress.swift */; };
 		BF14B0D02ED28B9800C4BF8D /* ExperienceBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */; };
 		BF14B0D22ED384A300C4BF8D /* RichTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */; };
+		BF14B0F02ED4000000C4BF8D /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E02ED4000000C4BF8D /* KeychainHelper.swift */; };
+		BF14B0F12ED4000000C4BF8D /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E12ED4000000C4BF8D /* LLMProvider.swift */; };
+		BF14B0F22ED4000000C4BF8D /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E22ED4000000C4BF8D /* ClaudeProvider.swift */; };
+		BF14B0F32ED4000000C4BF8D /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E32ED4000000C4BF8D /* OpenAIProvider.swift */; };
+		BF14B0F42ED4000000C4BF8D /* LLMRephraseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E42ED4000000C4BF8D /* LLMRephraseService.swift */; };
+		BF14B0F52ED4000000C4BF8D /* AISettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E52ED4000000C4BF8D /* AISettingsView.swift */; };
+		BF14B0F72ED5000000C4BF8D /* PhraseSuggestionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0F62ED5000000C4BF8D /* PhraseSuggestionTracker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +49,13 @@
 		BF14B0CD2ED28B8400C4BF8D /* XPProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPProgress.swift; sourceTree = "<group>"; };
 		BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperienceBar.swift; sourceTree = "<group>"; };
 		BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichTextEditor.swift; sourceTree = "<group>"; };
+		BF14B0E02ED4000000C4BF8D /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		BF14B0E12ED4000000C4BF8D /* LLMProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
+		BF14B0E22ED4000000C4BF8D /* ClaudeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProvider.swift; sourceTree = "<group>"; };
+		BF14B0E32ED4000000C4BF8D /* OpenAIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProvider.swift; sourceTree = "<group>"; };
+		BF14B0E42ED4000000C4BF8D /* LLMRephraseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMRephraseService.swift; sourceTree = "<group>"; };
+		BF14B0E52ED4000000C4BF8D /* AISettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISettingsView.swift; sourceTree = "<group>"; };
+		BF14B0F62ED5000000C4BF8D /* PhraseSuggestionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhraseSuggestionTracker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				BF14B0B02ED2827300C4BF8D /* ExpansionEngine.swift */,
+				BF14B0F62ED5000000C4BF8D /* PhraseSuggestionTracker.swift */,
 				BF14B0B12ED2827300C4BF8D /* XPManager.swift */,
 			);
 			path = Managers;
@@ -95,6 +110,7 @@
 				BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */,
 				BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */,
 				BF14B0B52ED2827300C4BF8D /* AddEditXPView.swift */,
+				BF14B0E52ED4000000C4BF8D /* AISettingsView.swift */,
 				BF14B0B62ED2827300C4BF8D /* ConflictView.swift */,
 				BF14B0B72ED2827300C4BF8D /* ContentView.swift */,
 				BF14B0B82ED2827300C4BF8D /* ImportView.swift */,
@@ -104,11 +120,24 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		BF14B0E62ED4000000C4BF8D /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				BF14B0E02ED4000000C4BF8D /* KeychainHelper.swift */,
+				BF14B0E12ED4000000C4BF8D /* LLMProvider.swift */,
+				BF14B0E22ED4000000C4BF8D /* ClaudeProvider.swift */,
+				BF14B0E32ED4000000C4BF8D /* OpenAIProvider.swift */,
+				BF14B0E42ED4000000C4BF8D /* LLMRephraseService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
 		BF14B0C02ED2827300C4BF8D /* Source */ = {
 			isa = PBXGroup;
 			children = (
 				BF14B0B22ED2827300C4BF8D /* Managers */,
 				BF14B0B42ED2827300C4BF8D /* Models */,
+				BF14B0E62ED4000000C4BF8D /* Services */,
 				BF14B0BB2ED2827300C4BF8D /* Views */,
 				BF14B0BC2ED2827300C4BF8D /* Assets.xcassets */,
 				BF14B0BD2ED2827300C4BF8D /* Info.plist */,
@@ -204,6 +233,13 @@
 				BF14B0C92ED2827300C4BF8D /* ConflictView.swift in Sources */,
 				BF14B0CA2ED2827300C4BF8D /* SettingsView.swift in Sources */,
 				BF14B0D02ED28B9800C4BF8D /* ExperienceBar.swift in Sources */,
+				BF14B0F02ED4000000C4BF8D /* KeychainHelper.swift in Sources */,
+				BF14B0F12ED4000000C4BF8D /* LLMProvider.swift in Sources */,
+				BF14B0F22ED4000000C4BF8D /* ClaudeProvider.swift in Sources */,
+				BF14B0F32ED4000000C4BF8D /* OpenAIProvider.swift in Sources */,
+				BF14B0F42ED4000000C4BF8D /* LLMRephraseService.swift in Sources */,
+				BF14B0F52ED4000000C4BF8D /* AISettingsView.swift in Sources */,
+				BF14B0F72ED5000000C4BF8D /* PhraseSuggestionTracker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

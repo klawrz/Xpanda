@@ -74,6 +74,31 @@ struct ContentView: View {
 
                 Divider()
 
+                // Count indicator
+                HStack(spacing: 4) {
+                    Text("Showing \(xpManager.filteredXPs.count)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if hasActiveFilters {
+                        Button("Clear filters") {
+                            xpManager.searchText = ""
+                            xpManager.selectedTags = []
+                            xpManager.selectedFolder = nil
+                        }
+                        .font(.caption)
+                        .buttonStyle(.plain)
+                        .foregroundColor(.accentColor)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
+
+                Divider()
+
                 // XP List
                 ScrollViewReader { proxy in
                     List(selection: $selectedXP) {
@@ -214,6 +239,14 @@ struct ContentView: View {
                 Text("Are you sure you want to delete \"\(xp.keyword.isEmpty ? "(Untitled)" : xp.keyword)\"? This cannot be undone.")
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .createXPFromSuggestion)) { notification in
+            if let phrase = notification.userInfo?["phrase"] as? String {
+                let newXP = XP(keyword: "", expansion: phrase, isRichText: false, tags: [], folder: nil)
+                xpManager.add(newXP)
+                selectedXP = newXP
+                scrollToNewXP = newXP.id
+            }
+        }
     }
 
     private func exportXPs() {
@@ -230,6 +263,10 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private var hasActiveFilters: Bool {
+        !xpManager.searchText.isEmpty || !xpManager.selectedTags.isEmpty || xpManager.selectedFolder != nil
     }
 
     private func addNewXP(isVariable: Bool) {

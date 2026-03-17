@@ -116,9 +116,15 @@ class ExpansionEngine {
                 }
                 return Unmanaged.passRetained(event)
             case 36, 76: // Return/Enter - clear buffer
+                if !typedBuffer.isEmpty {
+                    PhraseSuggestionTracker.shared.recordPhrase(typedBuffer)
+                }
                 typedBuffer = ""
                 return Unmanaged.passRetained(event)
             case 48: // Tab - clear buffer
+                if !typedBuffer.isEmpty {
+                    PhraseSuggestionTracker.shared.recordPhrase(typedBuffer)
+                }
                 typedBuffer = ""
                 return Unmanaged.passRetained(event)
             case 53: // Escape - clear buffer
@@ -153,6 +159,16 @@ class ExpansionEngine {
             typedBuffer.removeFirst()
         }
 
+        // Detect sentence boundaries (". ", "! ", "? ")
+        if char == " " && typedBuffer.count >= 2 {
+            let idx = typedBuffer.index(typedBuffer.endIndex, offsetBy: -2)
+            if ".!?".contains(typedBuffer[idx]) {
+                let content = String(typedBuffer.dropLast()) // remove trailing space
+                let sentence = extractLastSentence(from: content)
+                PhraseSuggestionTracker.shared.recordPhrase(sentence)
+            }
+        }
+
         // Check for matches after every character
         if let match = findMatch() {
             performExpansion(xp: match, proxy: proxy)
@@ -160,6 +176,23 @@ class ExpansionEngine {
             // Check if user just typed out an expansion's content
             checkForMissedExpansion()
         }
+    }
+
+    private func extractLastSentence(from text: String) -> String {
+        // Look backward for a previous sentence boundary (". ", "! ", "? ")
+        let sentenceEnders: [String] = [". ", "! ", "? "]
+        var lastBoundary = text.startIndex
+
+        for ender in sentenceEnders {
+            if let range = text.range(of: ender, options: .backwards) {
+                let afterBoundary = range.upperBound
+                if afterBoundary > lastBoundary && afterBoundary < text.endIndex {
+                    lastBoundary = afterBoundary
+                }
+            }
+        }
+
+        return String(text[lastBoundary...])
     }
 
     private func findMatch() -> XP? {
@@ -222,6 +255,7 @@ class ExpansionEngine {
                     // Re-enable event tap after expansion completes
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         self.isEnabled = true
+                        self.playExpansionSound()
 
                         // Add experience for using this XP
                         let leveledUp = XPManager.shared.addExperienceForExpansion()
@@ -346,6 +380,30 @@ class ExpansionEngine {
             print("   → Using plain text output mode")
             let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
+
+            // Check if rephrase is enabled and configured
+            if xp.rephraseEnabled && LLMRephraseService.shared.isConfigured {
+                let capturedOffset = cursorOffset
+                let capturedClipboard = savedClipboardString
+                Task {
+                    let finalText: String
+                    do {
+                        finalText = try await withTimeout(seconds: 3.0) {
+                            try await LLMRephraseService.shared.rephrasePlainText(processedText)
+                        }
+                    } catch {
+                        print("LLM rephrase failed, using original: \(error)")
+                        finalText = processedText
+                    }
+                    await MainActor.run {
+                        let pb = NSPasteboard.general
+                        pb.setString(finalText, forType: .string)
+                        self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
+                    }
+                }
+                return
+            }
+
             pasteboard.setString(processedText, forType: .string)
         } else if xp.isRichText, let attributedString = xp.attributedString {
             // Process placeholder replacement for rich text
@@ -377,129 +435,186 @@ class ExpansionEngine {
                 }
             }
 
-            // Write rich text with images to pasteboard
-            do {
-                // For images, we need to write using the proper pasteboard types
-                // Try multiple formats for maximum compatibility
-
-                // 1. Write as NSAttributedString object (works for native macOS apps)
-                pasteboard.writeObjects([processedAttributedString])
-                print("   ✓ Wrote NSAttributedString object to pasteboard")
-
-                // 2. Write HTML with embedded images (for web apps like Google Docs)
-                // Build HTML with both text and base64-encoded images
-                var hasImages = false
-                var htmlParts: [(index: Int, html: String)] = []
-
-                // Find all images and create base64 HTML for them
-                processedAttributedString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: processedAttributedString.length), options: []) { value, range, _ in
-                    if let attachment = value as? NSTextAttachment,
-                       let image = attachment.image,
-                       let tiffData = image.tiffRepresentation,
-                       let bitmapImage = NSBitmapImageRep(data: tiffData),
-                       let pngData = bitmapImage.representation(using: .png, properties: [:]) {
-
-                        hasImages = true
-                        let base64String = pngData.base64EncodedString()
-                        let imageHtml = "<img src=\"data:image/png;base64,\(base64String)\" width=\"\(Int(image.size.width))\" height=\"\(Int(image.size.height))\" />"
-                        htmlParts.append((index: range.location, html: imageHtml))
-                        print("   ✓ Created base64 embedded image (\(pngData.count) bytes)")
-                    }
-                }
-
-                // Build complete HTML with text and images
-                if hasImages {
-                    var htmlString = ""
-                    let fullText = processedAttributedString.string
-                    var currentIndex = 0
-
-                    // Sort image parts by index
-                    let sortedParts = htmlParts.sorted { $0.index < $1.index }
-
-                    for part in sortedParts {
-                        // Add text before this image
-                        if currentIndex < part.index {
-                            let textRange = fullText.index(fullText.startIndex, offsetBy: currentIndex)..<fullText.index(fullText.startIndex, offsetBy: part.index)
-                            let textContent = String(fullText[textRange])
-                            if !textContent.isEmpty {
-                                // Escape HTML special characters
-                                let escaped = textContent
-                                    .replacingOccurrences(of: "&", with: "&amp;")
-                                    .replacingOccurrences(of: "<", with: "&lt;")
-                                    .replacingOccurrences(of: ">", with: "&gt;")
-                                    .replacingOccurrences(of: "\n", with: "<br>")
-                                htmlString += escaped
-                            }
+            // Check if rephrase is enabled and configured
+            if xp.rephraseEnabled && LLMRephraseService.shared.isConfigured {
+                let capturedOffset = cursorOffset
+                let capturedClipboard = savedClipboardString
+                let capturedProcessed = processedAttributedString
+                Task {
+                    let result: NSAttributedString
+                    do {
+                        result = try await withTimeout(seconds: 3.0) {
+                            try await LLMRephraseService.shared.rephraseAttributedString(capturedProcessed)
                         }
-
-                        // Add the image
-                        htmlString += part.html
-
-                        // Move past the attachment character (U+FFFC)
-                        currentIndex = part.index + 1
+                    } catch {
+                        print("LLM rephrase failed, using original: \(error)")
+                        result = capturedProcessed
                     }
-
-                    // Add any remaining text after the last image
-                    if currentIndex < fullText.count {
-                        let textRange = fullText.index(fullText.startIndex, offsetBy: currentIndex)..<fullText.endIndex
-                        let textContent = String(fullText[textRange])
-                        if !textContent.isEmpty {
-                            let escaped = textContent
-                                .replacingOccurrences(of: "&", with: "&amp;")
-                                .replacingOccurrences(of: "<", with: "&lt;")
-                                .replacingOccurrences(of: ">", with: "&gt;")
-                                .replacingOccurrences(of: "\n", with: "<br>")
-                            htmlString += escaped
-                        }
-                    }
-
-                    if let htmlData = htmlString.data(using: .utf8) {
-                        pasteboard.setData(htmlData, forType: .html)
-                        print("   ✓ Wrote HTML with embedded images and text to pasteboard (\(htmlData.count) bytes)")
-                    }
-                } else {
-                    // Fall back to default HTML conversion for text-only content
-                    if let htmlData = try? processedAttributedString.data(
-                        from: NSRange(location: 0, length: processedAttributedString.length),
-                        documentAttributes: [
-                            .documentType: NSAttributedString.DocumentType.html,
-                            .characterEncoding: String.Encoding.utf8.rawValue
-                        ]
-                    ) {
-                        pasteboard.setData(htmlData, forType: .html)
-                        print("   ✓ Wrote HTML data to pasteboard (\(htmlData.count) bytes)")
+                    nonisolated(unsafe) let finalAttrStr = result
+                    await MainActor.run {
+                        let pb = NSPasteboard.general
+                        self.writeRichTextToPasteboard(finalAttrStr, pasteboard: pb)
+                        self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
                     }
                 }
-
-                // 3. Write RTFD data (for apps that support it)
-                if let rtfdData = try? processedAttributedString.data(
-                    from: NSRange(location: 0, length: processedAttributedString.length),
-                    documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
-                ) {
-                    pasteboard.setData(rtfdData, forType: .rtfd)
-                    print("   ✓ Wrote RTFD data to pasteboard (\(rtfdData.count) bytes)")
-                }
-
-                // 4. Write RTF for apps that don't support images
-                if let rtfData = try? processedAttributedString.data(
-                    from: NSRange(location: 0, length: processedAttributedString.length),
-                    documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
-                ) {
-                    pasteboard.setData(rtfData, forType: .rtf)
-                    print("   ✓ Wrote RTF data to pasteboard (\(rtfData.count) bytes)")
-                }
-
-                // 5. Write plain text as fallback
-                pasteboard.setString(processedAttributedString.string, forType: .string)
-                print("   ✓ Wrote plain text to pasteboard")
+                return
             }
+
+            writeRichTextToPasteboard(processedAttributedString, pasteboard: pasteboard)
         } else {
             // Process placeholder replacement for plain text
             print("   → Using fallback plain text mode")
             let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
+
+            // Check if rephrase is enabled and configured
+            if xp.rephraseEnabled && LLMRephraseService.shared.isConfigured {
+                let capturedOffset = cursorOffset
+                let capturedClipboard = savedClipboardString
+                Task {
+                    let finalText: String
+                    do {
+                        finalText = try await withTimeout(seconds: 3.0) {
+                            try await LLMRephraseService.shared.rephrasePlainText(processedText)
+                        }
+                    } catch {
+                        print("LLM rephrase failed, using original: \(error)")
+                        finalText = processedText
+                    }
+                    await MainActor.run {
+                        let pb = NSPasteboard.general
+                        pb.setString(finalText, forType: .string)
+                        self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
+                    }
+                }
+                return
+            }
+
             pasteboard.setString(processedText, forType: .string)
         }
+
+        performPaste(cursorOffset: cursorOffset, savedClipboard: savedClipboardString)
+    }
+
+    private func writeRichTextToPasteboard(_ processedAttributedString: NSAttributedString, pasteboard: NSPasteboard) {
+        // Write rich text with images to pasteboard
+        // For images, we need to write using the proper pasteboard types
+        // Try multiple formats for maximum compatibility
+
+        // 1. Write as NSAttributedString object (works for native macOS apps)
+        pasteboard.writeObjects([processedAttributedString])
+        print("   ✓ Wrote NSAttributedString object to pasteboard")
+
+        // 2. Write HTML with embedded images (for web apps like Google Docs)
+        // Build HTML with both text and base64-encoded images
+        var hasImages = false
+        var htmlParts: [(index: Int, html: String)] = []
+
+        // Find all images and create base64 HTML for them
+        processedAttributedString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: processedAttributedString.length), options: []) { value, range, _ in
+            if let attachment = value as? NSTextAttachment,
+               let image = attachment.image,
+               let tiffData = image.tiffRepresentation,
+               let bitmapImage = NSBitmapImageRep(data: tiffData),
+               let pngData = bitmapImage.representation(using: .png, properties: [:]) {
+
+                hasImages = true
+                let base64String = pngData.base64EncodedString()
+                let imageHtml = "<img src=\"data:image/png;base64,\(base64String)\" width=\"\(Int(image.size.width))\" height=\"\(Int(image.size.height))\" />"
+                htmlParts.append((index: range.location, html: imageHtml))
+                print("   ✓ Created base64 embedded image (\(pngData.count) bytes)")
+            }
+        }
+
+        // Build complete HTML with text and images
+        if hasImages {
+            var htmlString = ""
+            let fullText = processedAttributedString.string
+            var currentIndex = 0
+
+            // Sort image parts by index
+            let sortedParts = htmlParts.sorted { $0.index < $1.index }
+
+            for part in sortedParts {
+                // Add text before this image
+                if currentIndex < part.index {
+                    let textRange = fullText.index(fullText.startIndex, offsetBy: currentIndex)..<fullText.index(fullText.startIndex, offsetBy: part.index)
+                    let textContent = String(fullText[textRange])
+                    if !textContent.isEmpty {
+                        // Escape HTML special characters
+                        let escaped = textContent
+                            .replacingOccurrences(of: "&", with: "&amp;")
+                            .replacingOccurrences(of: "<", with: "&lt;")
+                            .replacingOccurrences(of: ">", with: "&gt;")
+                            .replacingOccurrences(of: "\n", with: "<br>")
+                        htmlString += escaped
+                    }
+                }
+
+                // Add the image
+                htmlString += part.html
+
+                // Move past the attachment character (U+FFFC)
+                currentIndex = part.index + 1
+            }
+
+            // Add any remaining text after the last image
+            if currentIndex < fullText.count {
+                let textRange = fullText.index(fullText.startIndex, offsetBy: currentIndex)..<fullText.endIndex
+                let textContent = String(fullText[textRange])
+                if !textContent.isEmpty {
+                    let escaped = textContent
+                        .replacingOccurrences(of: "&", with: "&amp;")
+                        .replacingOccurrences(of: "<", with: "&lt;")
+                        .replacingOccurrences(of: ">", with: "&gt;")
+                        .replacingOccurrences(of: "\n", with: "<br>")
+                    htmlString += escaped
+                }
+            }
+
+            if let htmlData = htmlString.data(using: .utf8) {
+                pasteboard.setData(htmlData, forType: .html)
+                print("   ✓ Wrote HTML with embedded images and text to pasteboard (\(htmlData.count) bytes)")
+            }
+        } else {
+            // Fall back to default HTML conversion for text-only content
+            if let htmlData = try? processedAttributedString.data(
+                from: NSRange(location: 0, length: processedAttributedString.length),
+                documentAttributes: [
+                    .documentType: NSAttributedString.DocumentType.html,
+                    .characterEncoding: String.Encoding.utf8.rawValue
+                ]
+            ) {
+                pasteboard.setData(htmlData, forType: .html)
+                print("   ✓ Wrote HTML data to pasteboard (\(htmlData.count) bytes)")
+            }
+        }
+
+        // 3. Write RTFD data (for apps that support it)
+        if let rtfdData = try? processedAttributedString.data(
+            from: NSRange(location: 0, length: processedAttributedString.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        ) {
+            pasteboard.setData(rtfdData, forType: .rtfd)
+            print("   ✓ Wrote RTFD data to pasteboard (\(rtfdData.count) bytes)")
+        }
+
+        // 4. Write RTF for apps that don't support images
+        if let rtfData = try? processedAttributedString.data(
+            from: NSRange(location: 0, length: processedAttributedString.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        ) {
+            pasteboard.setData(rtfData, forType: .rtf)
+            print("   ✓ Wrote RTF data to pasteboard (\(rtfData.count) bytes)")
+        }
+
+        // 5. Write plain text as fallback
+        pasteboard.setString(processedAttributedString.string, forType: .string)
+        print("   ✓ Wrote plain text to pasteboard")
+    }
+
+    private func performPaste(cursorOffset: Int?, savedClipboard: String?) {
+        let pasteboard = NSPasteboard.general
 
         // Simulate Cmd+V using CGEvent (more reliable than AppleScript)
         Thread.sleep(forTimeInterval: 0.05)
@@ -544,6 +659,7 @@ class ExpansionEngine {
         // Restore original clipboard contents after a safe delay (2 seconds)
         // This gives all applications enough time to read from the clipboard
         // Use a background thread to avoid blocking
+        let savedClipboardString = savedClipboard
         DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 2.0) {
             let pasteboard = NSPasteboard.general
             if let savedClipboard = savedClipboardString {
@@ -1679,6 +1795,7 @@ class ExpansionEngine {
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     self.isEnabled = true
+                    self.playExpansionSound()
 
                     let leveledUp = XPManager.shared.addExperienceForExpansion()
                     if leveledUp {
@@ -1780,16 +1897,44 @@ class ExpansionEngine {
         }
     }
 
+
+    // MARK: - Expansion Sound
+
+    func playExpansionSound() {
+        guard UserDefaults.standard.object(forKey: "expansionSoundEnabled") as? Bool ?? true else { return }
+        NSSound(named: "Pong")?.play()
+    }
+
     // MARK: - Missed Expansion Notifications
 
     private func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if granted {
                 print("✅ Notification permission granted")
             } else if let error = error {
                 print("❌ Notification permission error: \(error)")
             }
         }
+
+        // Register actionable notification categories
+        let createAction = UNNotificationAction(
+            identifier: "CREATE_XP_ACTION",
+            title: "Create XP",
+            options: [.foreground]
+        )
+        let dismissAction = UNNotificationAction(
+            identifier: "DISMISS_ACTION",
+            title: "Dismiss",
+            options: [.destructive]
+        )
+        let phraseSuggestionCategory = UNNotificationCategory(
+            identifier: "PHRASE_SUGGESTION",
+            actions: [createAction, dismissAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        center.setNotificationCategories([phraseSuggestionCategory])
     }
 
     private func checkForMissedExpansion() {

@@ -866,12 +866,13 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
     var isVariable: Bool = false // If true, this is a reusable variable (keyword must start with %)
     var tags: [String]
     var folder: String?
+    var rephraseEnabled: Bool = false
     var dateCreated: Date
     var dateModified: Date
 
     // Custom decoding to handle backward compatibility
     enum CodingKeys: String, CodingKey {
-        case id, keyword, expansion, isRichText, richTextData, outputPlainText, editorMode, isVariable, tags, folder, dateCreated, dateModified
+        case id, keyword, expansion, isRichText, richTextData, outputPlainText, editorMode, isVariable, tags, folder, rephraseEnabled, dateCreated, dateModified
     }
 
     init(from decoder: Decoder) throws {
@@ -887,6 +888,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         isVariable = try container.decodeIfPresent(Bool.self, forKey: .isVariable) ?? false
         tags = try container.decode([String].self, forKey: .tags)
         folder = try container.decodeIfPresent(String.self, forKey: .folder)
+        rephraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .rephraseEnabled) ?? false
         dateCreated = try container.decode(Date.self, forKey: .dateCreated)
         dateModified = try container.decode(Date.self, forKey: .dateModified)
     }
@@ -902,6 +904,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         isVariable: Bool = false,
         tags: [String] = [],
         folder: String? = nil,
+        rephraseEnabled: Bool = false,
         dateCreated: Date = Date(),
         dateModified: Date = Date()
     ) {
@@ -915,6 +918,7 @@ struct XP: Identifiable, Codable, Equatable, Hashable {
         self.isVariable = isVariable
         self.tags = tags
         self.folder = folder
+        self.rephraseEnabled = rephraseEnabled
         self.dateCreated = dateCreated
         self.dateModified = dateModified
     }

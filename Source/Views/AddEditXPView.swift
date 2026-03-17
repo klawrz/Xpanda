@@ -24,6 +24,7 @@ struct AddEditXPView: View {
     @State private var tags: [String] = []
     @State private var newTag: String = ""
     @State private var folder: String = ""
+    @State private var rephraseEnabled: Bool = false
     @State private var showingFolderPicker: Bool = false
 
     @State private var showingError: Bool = false
@@ -41,6 +42,7 @@ struct AddEditXPView: View {
             _editorMode = State(initialValue: xp.editorMode)
             _tags = State(initialValue: xp.tags)
             _folder = State(initialValue: xp.folder ?? "")
+            _rephraseEnabled = State(initialValue: xp.rephraseEnabled)
 
             // Load rich text data if available, otherwise convert plain text
             if xp.isRichText, let attributedStr = xp.attributedString {
@@ -97,8 +99,30 @@ struct AddEditXPView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 180)
-                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString, editorMode: $editorMode)
+                    RichTextEditorWithToolbar(attributedString: $richTextAttributedString, editorMode: $editorMode, rephraseEnabled: $rephraseEnabled)
                         .frame(minHeight: 150)
+
+                    if rephraseEnabled {
+                        if LLMRephraseService.shared.isConfigured {
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                                Text("Message will be rephrased by AI to avoid repetition")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
+                        } else {
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles")
+                                    .foregroundColor(.orange)
+                                    .font(.caption)
+                                Text("No API key configured. AI Rephrasing will not run. Go to Settings > AI to add one.")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                    }
                 }
 
                 Section("Organization") {
@@ -273,7 +297,8 @@ struct AddEditXPView: View {
                 outputPlainText: (editorMode == .code),
                 editorMode: editorMode,
                 tags: tags,
-                folder: trimmedFolder.isEmpty ? nil : trimmedFolder
+                folder: trimmedFolder.isEmpty ? nil : trimmedFolder,
+                rephraseEnabled: rephraseEnabled
             )
             xpManager.add(newXP)
 
@@ -287,6 +312,7 @@ struct AddEditXPView: View {
             updatedXP.outputPlainText = (editorMode == .code)
             updatedXP.tags = tags
             updatedXP.folder = trimmedFolder.isEmpty ? nil : trimmedFolder
+            updatedXP.rephraseEnabled = rephraseEnabled
             xpManager.update(updatedXP)
         }
 
