@@ -8,6 +8,8 @@ struct ContentView: View {
     @State private var scrollToNewXP: UUID?
     @State private var showingDeleteConfirmation = false
     @State private var xpToDelete: XP?
+    @State private var showingAddAutocorrect = false
+    @State private var showingEditAutocorrect: XP? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,51 +27,93 @@ struct ContentView: View {
                         .padding(.bottom, 8)
                 }
 
-                // XP/Variable Filter Tabs
+                // XP/Variable/Autocorrect Filter Tabs
                 HStack(spacing: 0) {
-                    // XPs Tab with inline + button
+                    // XPs Tab
                     Button(action: { xpManager.viewFilter = .xpsOnly }) {
-                        HStack(spacing: 4) {
+                        ZStack {
                             Text("XPs")
-                            Spacer()
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .lineLimit(1)
                             if xpManager.viewFilter == .xpsOnly {
-                                Button(action: { addNewXP(isVariable: false) }) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 12))
+                                HStack {
+                                    Spacer()
+                                    Button(action: { addNewXP(isVariable: false) }) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 11))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.trailing, 6)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.horizontal, 8)
                         .background(xpManager.viewFilter == .xpsOnly ? Color.gray.opacity(0.2) : Color.clear)
                         .foregroundColor(xpManager.viewFilter == .xpsOnly ? .primary : .secondary)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
 
-                    // Variables Tab with inline + button
+                    Divider()
+
+                    // Variables Tab
                     Button(action: { xpManager.viewFilter = .variablesOnly }) {
-                        HStack(spacing: 4) {
+                        ZStack {
                             Text("Variables")
-                            Spacer()
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .lineLimit(1)
                             if xpManager.viewFilter == .variablesOnly {
-                                Button(action: { addNewXP(isVariable: true) }) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 12))
+                                HStack {
+                                    Spacer()
+                                    Button(action: { addNewXP(isVariable: true) }) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 11))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.trailing, 6)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.horizontal, 8)
                         .background(xpManager.viewFilter == .variablesOnly ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.2) : Color.clear)
                         .foregroundColor(xpManager.viewFilter == .variablesOnly ? Color(red: 0.3, green: 0.8, blue: 0.4) : .secondary)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+
+                    Divider()
+
+                    // Autocorrect Tab
+                    Button(action: { xpManager.viewFilter = .autocorrectOnly }) {
+                        ZStack {
+                            Text("Autocorrect")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                            if xpManager.viewFilter == .autocorrectOnly {
+                                HStack {
+                                    Spacer()
+                                    Button(action: { addNewAutocorrect() }) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 11))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.trailing, 6)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(xpManager.viewFilter == .autocorrectOnly ? Color.orange.opacity(0.2) : Color.clear)
+                        .foregroundColor(xpManager.viewFilter == .autocorrectOnly ? .orange : .secondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .frame(height: 32)
+                .frame(height: 28)
+                .fixedSize(horizontal: false, vertical: true)
                 .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
 
                 Divider()
@@ -124,8 +168,8 @@ struct ContentView: View {
                         }
                     }
                     .listStyle(.sidebar)
-                    .scrollContentBackground(xpManager.viewFilter == .variablesOnly ? .hidden : .visible)
-                    .background(xpManager.viewFilter == .variablesOnly ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.1) : Color.clear)
+                    .scrollContentBackground((xpManager.viewFilter == .variablesOnly || xpManager.viewFilter == .autocorrectOnly) ? .hidden : .visible)
+                    .background(xpManager.viewFilter == .variablesOnly ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.1) : xpManager.viewFilter == .autocorrectOnly ? Color.orange.opacity(0.05) : Color.clear)
                     .safeAreaInset(edge: .top, spacing: 0) {
                         Color.clear.frame(height: 8)
                     }
@@ -145,7 +189,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
+            .navigationSplitViewColumnWidth(min: 250, ideal: 340, max: 400)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     HStack {
@@ -173,10 +217,18 @@ struct ContentView: View {
             // Detail view - find the current version from the manager
             if let selectedID = selectedXP?.id,
                let currentXP = xpManager.xps.first(where: { $0.id == selectedID }) {
-                XPDetailView(xp: currentXP)
-                    .id(currentXP.id)
-                    .navigationTitle("")
-                    .toolbarBackground(.hidden, for: .windowToolbar)
+                if currentXP.isAutocorrect {
+                    AutocorrectDetailView(xp: currentXP)
+                        .id(currentXP.id)
+                        .environmentObject(xpManager)
+                        .navigationTitle("")
+                        .toolbarBackground(.hidden, for: .windowToolbar)
+                } else {
+                    XPDetailView(xp: currentXP)
+                        .id(currentXP.id)
+                        .navigationTitle("")
+                        .toolbarBackground(.hidden, for: .windowToolbar)
+                }
             } else {
                 VStack(spacing: 20) {
                     Image("PandaLogo")
@@ -218,6 +270,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingImportExport) {
             ImportView()
+                .environmentObject(xpManager)
+        }
+        .sheet(isPresented: $showingAddAutocorrect) {
+            AddEditAutocorrectView(mode: .add)
                 .environmentObject(xpManager)
         }
         .alert("Delete XP", isPresented: $showingDeleteConfirmation) {
@@ -269,6 +325,10 @@ struct ContentView: View {
         !xpManager.searchText.isEmpty || !xpManager.selectedTags.isEmpty || xpManager.selectedFolder != nil
     }
 
+    private func addNewAutocorrect() {
+        showingAddAutocorrect = true
+    }
+
     private func addNewXP(isVariable: Bool) {
         // Create a blank XP or Variable
         let newXP = XP(
@@ -288,6 +348,93 @@ struct ContentView: View {
 
         // Trigger scroll to the new XP
         scrollToNewXP = newXP.id
+    }
+}
+
+struct AutocorrectDetailView: View {
+    let xp: XP
+    @EnvironmentObject var xpManager: XPManager
+    @State private var misspelling: String
+    @State private var correction: String
+    @State private var showingDeleteConfirmation = false
+
+    init(xp: XP) {
+        self.xp = xp
+        _misspelling = State(initialValue: xp.keyword)
+        _correction = State(initialValue: xp.expansion)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "textformat.abc")
+                    .foregroundColor(.orange)
+                Text("Autocorrect Entry")
+                    .font(.headline)
+                Spacer()
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Misspelling")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("", text: $misspelling)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: misspelling) { newValue in
+                            misspelling = newValue.replacingOccurrences(of: " ", with: "")
+                        }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Correction")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("", text: $correction)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: correction) { newValue in
+                            correction = newValue.replacingOccurrences(of: " ", with: "")
+                        }
+                }
+            }
+            .padding()
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Save") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(misspelling.isEmpty || correction.isEmpty || (misspelling == xp.keyword && correction == xp.expansion))
+            }
+            .padding()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .alert("Delete Autocorrect", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                xpManager.delete(xp)
+            }
+        } message: {
+            Text("Delete the autocorrect rule for \"\(xp.keyword)\"? This cannot be undone.")
+        }
+    }
+
+    private func save() {
+        var updated = xp
+        updated.keyword = misspelling.trimmingCharacters(in: .whitespaces)
+        updated.expansion = correction.trimmingCharacters(in: .whitespaces)
+        updated.dateModified = Date()
+        xpManager.update(updated)
     }
 }
 
@@ -320,6 +467,25 @@ struct XPListRow: View {
     let conflictingKeywords: [String]
 
     var body: some View {
+        if xp.isAutocorrect {
+            HStack(spacing: 4) {
+                Image(systemName: "textformat.abc")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                    .frame(width: 20)
+                Text(xp.keyword.isEmpty ? "(Untitled)" : xp.keyword)
+                    .font(.headline)
+                    .foregroundColor(xp.keyword.isEmpty ? .secondary : .primary)
+                Image(systemName: "arrow.right")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text(xp.expansion.isEmpty ? "(No correction)" : xp.expansion)
+                    .font(.headline)
+                    .foregroundColor(xp.expansion.isEmpty ? .secondary : .primary)
+                Spacer()
+            }
+            .padding(.vertical, 4)
+        } else {
         HStack {
             // Variable icon indicator
             if xp.isVariable {
@@ -376,6 +542,7 @@ struct XPListRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+        } // end else (not autocorrect)
     }
 
     private var conflictMessage: String {

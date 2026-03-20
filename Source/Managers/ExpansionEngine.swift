@@ -255,13 +255,15 @@ class ExpansionEngine {
                     // Re-enable event tap after expansion completes
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         self.isEnabled = true
-                        self.playExpansionSound()
+                        if !xp.isAutocorrect {
+                            self.playExpansionSound()
 
-                        // Add experience for using this XP
-                        let leveledUp = XPManager.shared.addExperienceForExpansion()
-                        if leveledUp {
-                            // TODO: Show level-up notification
-                            print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                            // Add experience for using this XP
+                            let leveledUp = XPManager.shared.addExperienceForExpansion()
+                            if leveledUp {
+                                // TODO: Show level-up notification
+                                print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                            }
                         }
                     }
                 }
@@ -1795,11 +1797,13 @@ class ExpansionEngine {
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     self.isEnabled = true
-                    self.playExpansionSound()
+                    if !wrapper.xp.isAutocorrect {
+                        self.playExpansionSound()
 
-                    let leveledUp = XPManager.shared.addExperienceForExpansion()
-                    if leveledUp {
-                        print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                        let leveledUp = XPManager.shared.addExperienceForExpansion()
+                        if leveledUp {
+                            print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
+                        }
                     }
                 }
             }
@@ -1902,7 +1906,7 @@ class ExpansionEngine {
 
     func playExpansionSound() {
         guard UserDefaults.standard.object(forKey: "expansionSoundEnabled") as? Bool ?? true else { return }
-        NSSound(named: "Pong")?.play()
+        NSSound(contentsOfFile: "/System/Library/Sounds/Ping.aiff", byReference: true)?.play()
     }
 
     // MARK: - Missed Expansion Notifications
@@ -1967,6 +1971,9 @@ class ExpansionEngine {
 
             // Skip variables (they're meant to be embedded, not typed directly)
             guard !xp.isVariable else { continue }
+
+            // Skip autocorrect entries (they don't trigger missed-expansion notifications)
+            guard !xp.isAutocorrect else { continue }
 
             // Check if the buffer ends with this expansion
             guard typedBuffer.hasSuffix(expansion) else { continue }

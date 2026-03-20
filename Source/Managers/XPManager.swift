@@ -8,6 +8,7 @@ class XPManager: ObservableObject {
         case all
         case xpsOnly
         case variablesOnly
+        case autocorrectOnly
     }
 
     @Published var xps: [XP] = []
@@ -40,9 +41,11 @@ class XPManager: ObservableObject {
                 case .all:
                     return true
                 case .xpsOnly:
-                    return !xp.isVariable
+                    return !xp.isVariable && !xp.isAutocorrect
                 case .variablesOnly:
                     return xp.isVariable
+                case .autocorrectOnly:
+                    return xp.isAutocorrect
                 }
             }()
 

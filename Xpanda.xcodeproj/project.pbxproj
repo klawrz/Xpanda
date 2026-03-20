@@ -11,6 +11,7 @@
 		BF14B0C22ED2827300C4BF8D /* ExpansionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B02ED2827300C4BF8D /* ExpansionEngine.swift */; };
 		BF14B0C32ED2827300C4BF8D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B72ED2827300C4BF8D /* ContentView.swift */; };
 		BF14B0C42ED2827300C4BF8D /* AddEditXPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B52ED2827300C4BF8D /* AddEditXPView.swift */; };
+		BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */; };
 		BF14B0C52ED2827300C4BF8D /* XP.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B32ED2827300C4BF8D /* XP.swift */; };
 		BF14B0C62ED2827300C4BF8D /* XPDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0BA2ED2827300C4BF8D /* XPDetailView.swift */; };
 		BF14B0C72ED2827300C4BF8D /* ImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B82ED2827300C4BF8D /* ImportView.swift */; };
@@ -37,6 +38,7 @@
 		BF14B0B12ED2827300C4BF8D /* XPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPManager.swift; sourceTree = "<group>"; };
 		BF14B0B32ED2827300C4BF8D /* XP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XP.swift; sourceTree = "<group>"; };
 		BF14B0B52ED2827300C4BF8D /* AddEditXPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddEditXPView.swift; sourceTree = "<group>"; };
+		BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddEditAutocorrectView.swift; sourceTree = "<group>"; };
 		BF14B0B62ED2827300C4BF8D /* ConflictView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictView.swift; sourceTree = "<group>"; };
 		BF14B0B72ED2827300C4BF8D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BF14B0B82ED2827300C4BF8D /* ImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportView.swift; sourceTree = "<group>"; };
@@ -110,6 +112,7 @@
 				BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */,
 				BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */,
 				BF14B0B52ED2827300C4BF8D /* AddEditXPView.swift */,
+				BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */,
 				BF14B0E52ED4000000C4BF8D /* AISettingsView.swift */,
 				BF14B0B62ED2827300C4BF8D /* ConflictView.swift */,
 				BF14B0B72ED2827300C4BF8D /* ContentView.swift */,
@@ -224,6 +227,7 @@
 				BF14B0C22ED2827300C4BF8D /* ExpansionEngine.swift in Sources */,
 				BF14B0C32ED2827300C4BF8D /* ContentView.swift in Sources */,
 				BF14B0C42ED2827300C4BF8D /* AddEditXPView.swift in Sources */,
+				BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */,
 				BF14B0C52ED2827300C4BF8D /* XP.swift in Sources */,
 				BF14B0C62ED2827300C4BF8D /* XPDetailView.swift in Sources */,
 				BF14B0D22ED384A300C4BF8D /* RichTextEditor.swift in Sources */,
