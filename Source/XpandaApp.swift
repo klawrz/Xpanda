@@ -1,5 +1,7 @@
 import SwiftUI
 import UserNotifications
+import AuthenticationServices
+import RevenueCat
 
 extension Notification.Name {
     static let createXPFromSuggestion = Notification.Name("createXPFromSuggestion")
@@ -9,12 +11,22 @@ extension Notification.Name {
 struct XpandaApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var xpManager = XPManager.shared
+    @StateObject private var authManager = AuthManager.shared
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(xpManager)
-                .frame(minWidth: 900, minHeight: 600)
+            Group {
+                if authManager.isSignedIn {
+                    ContentView()
+                        .environmentObject(xpManager)
+                        .environmentObject(authManager)
+                        .frame(minWidth: 900, minHeight: 700)
+                } else {
+                    SignInView()
+                        .environmentObject(authManager)
+                        .frame(width: 480, height: 520)
+                }
+            }
         }
         .commands {
             CommandGroup(replacing: .newItem) { }
@@ -29,6 +41,7 @@ struct XpandaApp: App {
         Settings {
             SettingsView()
                 .environmentObject(xpManager)
+                .environmentObject(authManager)
         }
     }
 }
@@ -57,9 +70,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Configure RevenueCat
+        Purchases.logLevel = .error
+        Purchases.configure(withAPIKey: "test_XnsQrMkFByTCBMEbTDhkyFcivJb")
+
         UNUserNotificationCenter.current().delegate = self
 
-        // Initialize the expansion engine
         expansionEngine = ExpansionEngine.shared
         expansionEngine?.start()
     }

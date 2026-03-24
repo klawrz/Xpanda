@@ -1,42 +1,29 @@
 import Foundation
 
-enum LLMProviderType: String, Codable, CaseIterable {
-    case claude = "Claude"
-    case openai = "OpenAI"
-
-    var defaultModel: String {
-        switch self {
-        case .claude: return "claude-haiku-4-5-20251001"
-        case .openai: return "gpt-4o-mini"
-        }
-    }
-
-    var keychainKey: String {
-        switch self {
-        case .claude: return "claude-api-key"
-        case .openai: return "openai-api-key"
-        }
-    }
-}
-
 protocol LLMProvider {
     func rephrase(text: String, systemPrompt: String?) async throws -> String
 }
 
 enum LLMError: Error, LocalizedError {
     case noAPIKey
+    case notAuthenticated
+    case notSubscribed
     case networkError(Error)
     case invalidResponse
+    case serverError(String)
     case timeout
     case rateLimited
 
     var errorDescription: String? {
         switch self {
-        case .noAPIKey: return "No API key configured"
-        case .networkError(let error): return "Network error: \(error.localizedDescription)"
-        case .invalidResponse: return "Invalid response from API"
-        case .timeout: return "Request timed out"
-        case .rateLimited: return "Rate limited by API"
+        case .noAPIKey:           return "AI not available"
+        case .notAuthenticated:   return "Sign in to use AI features"
+        case .notSubscribed:      return "Subscribe to Baeside AI to use this feature"
+        case .networkError(let e): return "Network error: \(e.localizedDescription)"
+        case .invalidResponse:    return "Invalid response from server"
+        case .serverError(let s): return "Server error: \(s)"
+        case .timeout:            return "Request timed out"
+        case .rateLimited:        return "Too many requests — please try again shortly"
         }
     }
 }

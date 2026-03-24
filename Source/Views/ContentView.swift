@@ -9,11 +9,9 @@ struct ContentView: View {
     @State private var showingDeleteConfirmation = false
     @State private var xpToDelete: XP?
     @State private var showingAddAutocorrect = false
-    @State private var showingEditAutocorrect: XP? = nil
 
     var body: some View {
-        VStack(spacing: 0) {
-            NavigationSplitView {
+        NavigationSplitView {
             // Sidebar
             VStack(spacing: 0) {
                 // Search bar
@@ -231,18 +229,26 @@ struct ContentView: View {
                 }
             } else {
                 VStack(spacing: 20) {
-                    Image("PandaLogo")
+                    Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 100, height: 100)
+                        .frame(width: 80, height: 80)
+                        .cornerRadius(18)
 
                     Text("Select an XP")
                         .font(.title2)
                         .foregroundColor(.primary)
 
-                    Text("\(xpManager.xps.count) XPs total")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    VStack(spacing: 4) {
+                        let xpCount = xpManager.xps.filter { !$0.isVariable && !$0.isAutocorrect }.count
+                        let varCount = xpManager.xps.filter { $0.isVariable }.count
+                        let acCount = xpManager.xps.filter { $0.isAutocorrect }.count
+                        Text("\(xpCount) XPs")
+                        Text("\(varCount) Variables")
+                        Text("\(acCount) Autocorrects")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(white: 1.0, opacity: 0.03))
@@ -250,19 +256,19 @@ struct ContentView: View {
                 .toolbarBackground(.hidden, for: .windowToolbar)
             }
         }
-
-            Divider()
-
-            HStack(spacing: 8) {
-                Image("PandaLogo")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 28, height: 28)
-                    .padding(.leading, 12)
-
-                ExperienceBar(progress: xpManager.progress)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider()
+                HStack(spacing: 8) {
+                    Image("PandaLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                        .padding(.leading, 12)
+                    ExperienceBar(progress: xpManager.progress)
+                }
+                .background(Color(red: 0.3, green: 0.1, blue: 0.5))
             }
-            .background(Color(red: 0.3, green: 0.1, blue: 0.5))
         }
         .sheet(isPresented: $showingConflicts) {
             ConflictView()

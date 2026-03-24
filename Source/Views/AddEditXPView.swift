@@ -117,7 +117,7 @@ struct AddEditXPView: View {
                                 Image(systemName: "sparkles")
                                     .foregroundColor(.orange)
                                     .font(.caption)
-                                Text("No API key configured. AI Rephrasing will not run. Go to Settings > AI to add one.")
+                                Text("Sign in and subscribe to enable AI rephrasing.")
                                     .font(.caption)
                                     .foregroundColor(.orange)
                             }

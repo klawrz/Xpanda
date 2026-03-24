@@ -394,7 +394,12 @@ class ExpansionEngine {
                             try await LLMRephraseService.shared.rephrasePlainText(processedText)
                         }
                     } catch {
-                        print("LLM rephrase failed, using original: \(error)")
+                        switch error as? LLMError {
+                        case .notAuthenticated, .notSubscribed:
+                            break // silently skip — user not signed in or no subscription
+                        default:
+                            print("Rephrase failed, using original: \(error)")
+                        }
                         finalText = processedText
                     }
                     await MainActor.run {
@@ -449,7 +454,12 @@ class ExpansionEngine {
                             try await LLMRephraseService.shared.rephraseAttributedString(capturedProcessed)
                         }
                     } catch {
-                        print("LLM rephrase failed, using original: \(error)")
+                        switch error as? LLMError {
+                        case .notAuthenticated, .notSubscribed:
+                            break // silently skip — user not signed in or no subscription
+                        default:
+                            print("Rephrase failed, using original: \(error)")
+                        }
                         result = capturedProcessed
                     }
                     nonisolated(unsafe) let finalAttrStr = result
@@ -480,7 +490,12 @@ class ExpansionEngine {
                             try await LLMRephraseService.shared.rephrasePlainText(processedText)
                         }
                     } catch {
-                        print("LLM rephrase failed, using original: \(error)")
+                        switch error as? LLMError {
+                        case .notAuthenticated, .notSubscribed:
+                            break // silently skip — user not signed in or no subscription
+                        default:
+                            print("Rephrase failed, using original: \(error)")
+                        }
                         finalText = processedText
                     }
                     await MainActor.run {

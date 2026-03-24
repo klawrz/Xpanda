@@ -178,7 +178,7 @@ struct XPDetailView: View {
                                 Image(systemName: "sparkles")
                                     .foregroundColor(.orange)
                                     .font(.caption)
-                                Text("No API key configured. AI Rephrasing will not run. Go to Settings > AI to add one.")
+                                Text("Sign in and subscribe to enable AI rephrasing.")
                                     .font(.caption)
                                     .foregroundColor(.orange)
                             }
@@ -188,58 +188,64 @@ struct XPDetailView: View {
 
                 Divider()
 
-                // Tags Section
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Tags")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
+                // Tags + Folder on one line
+                HStack(alignment: .top, spacing: 16) {
+                    // Tags
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Tags")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
 
-                    HStack {
-                        TextField("Add tag", text: $newTag, onCommit: addTag)
-                            .textFieldStyle(.roundedBorder)
-
-                        Button("Add") {
-                            addTag()
-                            debouncedSave()
-                        }
-                        .disabled(newTag.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-
-                    if !tags.isEmpty {
-                        FlowLayout(spacing: 6) {
-                            ForEach(tags, id: \.self) { tag in
-                                HStack(spacing: 4) {
-                                    Text(tag)
-                                        .font(.callout)
-                                    Button(action: {
-                                        removeTag(tag)
-                                        debouncedSave()
-                                    }) {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.caption)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Color.blue.opacity(0.2))
+                        HStack {
+                            TextField("Add tag", text: $newTag, onCommit: addTag)
+                                .textFieldStyle(.plain)
+                                .padding(8)
+                                .background(Color(NSColor.controlBackgroundColor))
                                 .cornerRadius(8)
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                            Button("Add") {
+                                addTag()
+                                debouncedSave()
+                            }
+                            .disabled(newTag.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+
+                        if !tags.isEmpty {
+                            FlowLayout(spacing: 6) {
+                                ForEach(tags, id: \.self) { tag in
+                                    HStack(spacing: 4) {
+                                        Text(tag)
+                                            .font(.callout)
+                                        Button(action: {
+                                            removeTag(tag)
+                                            debouncedSave()
+                                        }) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.caption)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color.blue.opacity(0.2))
+                                    .cornerRadius(8)
+                                }
                             }
                         }
                     }
-                }
+                    .frame(maxWidth: .infinity)
 
-                Divider()
+                    Divider()
+                        .frame(maxHeight: .infinity)
 
-                // Folder Section
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Folder")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
+                    // Folder
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Folder")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
 
-                    HStack {
                         if !xpManager.allFolders.isEmpty {
                             Menu {
                                 Button("None") {
@@ -254,22 +260,26 @@ struct XPDetailView: View {
                                     }
                                 }
                             } label: {
-                                HStack {
+                                HStack(spacing: 4) {
                                     Text(folder.isEmpty ? "Select folder..." : folder)
                                         .foregroundColor(folder.isEmpty ? .secondary : .primary)
                                     Image(systemName: "chevron.down")
+                                        .font(.caption)
                                 }
                             }
+                            .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, alignment: .leading)
-
-                            Text("or")
-                                .foregroundColor(.secondary)
                         }
 
-                        TextField("New folder name", text: $folder)
-                            .textFieldStyle(.roundedBorder)
+                        TextField("Folder name", text: $folder)
+                            .textFieldStyle(.plain)
+                            .padding(8)
+                            .background(Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(8)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                             .onChange(of: folder) { _ in debouncedSave() }
                     }
+                    .frame(maxWidth: .infinity)
                 }
 
 

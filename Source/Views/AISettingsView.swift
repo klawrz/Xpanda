@@ -1,93 +1,81 @@
 import SwiftUI
 
 struct AISettingsView: View {
-    @State private var selectedProvider: LLMProviderType = LLMRephraseService.shared.selectedProvider
-    @State private var apiKey: String = ""
-    @State private var showAPIKey: Bool = false
+    @EnvironmentObject var xpManager: XPManager
+    @ObservedObject private var authManager = AuthManager.shared
     @State private var customPrompt: String = LLMRephraseService.shared.customSystemPrompt ?? ""
-    @State private var keySaved: Bool = false
+    @State private var showingPaywall = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // AI Provider
+
+                // Account
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("AI Provider")
+                    Text("Account")
                         .font(.headline)
 
-                    Menu {
-                        ForEach(LLMProviderType.allCases, id: \.self) { provider in
-                            Button(provider.rawValue) {
-                                selectedProvider = provider
-                                LLMRephraseService.shared.selectedProvider = provider
-                                loadKeyForCurrentProvider()
-                                keySaved = false
+                    if authManager.isSignedIn {
+                        HStack(spacing: 10) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.secondary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let name = authManager.displayName, !name.isEmpty {
+                                    Text(name).font(.body)
+                                }
+                                if let email = authManager.email, !email.isEmpty {
+                                    Text(email)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("Baeside Account")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
+
+                            Spacer()
+
+                            Button("Sign Out") { authManager.signOut() }
+                                .foregroundColor(.red)
                         }
-                    } label: {
-                        Text(selectedProvider.rawValue)
-                    }
-                    .menuIndicator(.visible)
-                    .frame(width: 140, alignment: .leading)
-                }
-
-                Divider()
-
-                // API Key
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("API Key")
-                        .font(.headline)
-
-                    HStack(spacing: 8) {
-                        HStack {
-                            if showAPIKey {
-                                TextField("Enter your \(selectedProvider.rawValue) API key", text: $apiKey)
-                                    .textFieldStyle(.plain)
-                            } else {
-                                SecureField("Enter your \(selectedProvider.rawValue) API key", text: $apiKey)
-                                    .textFieldStyle(.plain)
-                            }
-
-                            Button(action: { showAPIKey.toggle() }) {
-                                Image(systemName: showAPIKey ? "eye.slash" : "eye")
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .help(showAPIKey ? "Hide API key" : "Show API key")
-                        }
-                        .padding(8)
-                        .background(Color.white.opacity(0.15))
+                        .padding(10)
+                        .background(Color(NSColor.controlBackgroundColor))
                         .cornerRadius(8)
 
-                        Button("Save") {
-                            saveAPIKey()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
+                        // Subscription status
+                        HStack(spacing: 10) {
+                            Image(systemName: authManager.isSubscribed ? "checkmark.seal.fill" : "lock.fill")
+                                .foregroundColor(authManager.isSubscribed ? .green : .orange)
 
-                    if keySaved {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                                .font(.caption)
-                            Text("Key saved")
-                                .font(.caption)
-                                .foregroundColor(.green)
-                        }
-                    }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(authManager.isSubscribed ? "Subscribed" : "Free Plan")
+                                    .font(.body)
+                                    .fontWeight(.medium)
+                                Text(authManager.isSubscribed
+                                     ? "AI rephrasing is active."
+                                     : "Upgrade to unlock AI rephrasing.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
 
-                    Text("Stored securely in the macOS Keychain.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                            Spacer()
 
-                    if KeychainHelper.loadString(forKey: selectedProvider.keychainKey) != nil {
-                        Button("Remove Key") {
-                            KeychainHelper.delete(forKey: selectedProvider.keychainKey)
-                            apiKey = ""
-                            keySaved = false
+                            if !authManager.isSubscribed {
+                                Button("Upgrade") { showingPaywall = true }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(.orange)
+                            }
                         }
-                        .foregroundColor(.red)
+                        .padding(10)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                    } else {
+                        Text("Not signed in.")
+                            .font(.body)
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -99,7 +87,7 @@ struct AISettingsView: View {
                         .font(.headline)
 
                     TextEditor(text: $customPrompt)
-                        .frame(height: 60)
+                        .frame(height: 80)
                         .font(.body)
                         .padding(4)
                         .background(Color(NSColor.controlBackgroundColor))
@@ -120,23 +108,9 @@ struct AISettingsView: View {
             }
             .padding(20)
         }
-        .onAppear {
-            loadKeyForCurrentProvider()
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView()
+                .environmentObject(authManager)
         }
-    }
-
-    private func loadKeyForCurrentProvider() {
-        if let existingKey = KeychainHelper.loadString(forKey: selectedProvider.keychainKey) {
-            apiKey = existingKey
-        } else {
-            apiKey = ""
-        }
-    }
-
-    private func saveAPIKey() {
-        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { return }
-        KeychainHelper.saveString(trimmedKey, forKey: selectedProvider.keychainKey)
-        keySaved = true
     }
 }

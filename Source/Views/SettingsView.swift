@@ -175,11 +175,11 @@ struct AboutView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    Text("Built by Klawrz")
+                    Text("Built by Baeside")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    Text("© 2025 Xpanda")
+                    Text("© 2026 Baeside")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

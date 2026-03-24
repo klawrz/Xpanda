@@ -7,11 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BF14B0A42ED9999900C4BF8D /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A32ED9999900C4BF8D /* PaywallView.swift */; };
+		BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */; };
 		BF14B0C12ED2827300C4BF8D /* XpandaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0BF2ED2827300C4BF8D /* XpandaApp.swift */; };
 		BF14B0C22ED2827300C4BF8D /* ExpansionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B02ED2827300C4BF8D /* ExpansionEngine.swift */; };
 		BF14B0C32ED2827300C4BF8D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B72ED2827300C4BF8D /* ContentView.swift */; };
 		BF14B0C42ED2827300C4BF8D /* AddEditXPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B52ED2827300C4BF8D /* AddEditXPView.swift */; };
-		BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */; };
 		BF14B0C52ED2827300C4BF8D /* XP.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B32ED2827300C4BF8D /* XP.swift */; };
 		BF14B0C62ED2827300C4BF8D /* XPDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0BA2ED2827300C4BF8D /* XPDetailView.swift */; };
 		BF14B0C72ED2827300C4BF8D /* ImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B82ED2827300C4BF8D /* ImportView.swift */; };
@@ -23,22 +24,27 @@
 		BF14B0CE2ED28B8400C4BF8D /* XPProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0CD2ED28B8400C4BF8D /* XPProgress.swift */; };
 		BF14B0D02ED28B9800C4BF8D /* ExperienceBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */; };
 		BF14B0D22ED384A300C4BF8D /* RichTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */; };
-		BF14B0F02ED4000000C4BF8D /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E02ED4000000C4BF8D /* KeychainHelper.swift */; };
 		BF14B0F12ED4000000C4BF8D /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E12ED4000000C4BF8D /* LLMProvider.swift */; };
-		BF14B0F22ED4000000C4BF8D /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E22ED4000000C4BF8D /* ClaudeProvider.swift */; };
-		BF14B0F32ED4000000C4BF8D /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E32ED4000000C4BF8D /* OpenAIProvider.swift */; };
 		BF14B0F42ED4000000C4BF8D /* LLMRephraseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E42ED4000000C4BF8D /* LLMRephraseService.swift */; };
 		BF14B0F52ED4000000C4BF8D /* AISettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0E52ED4000000C4BF8D /* AISettingsView.swift */; };
 		BF14B0F72ED5000000C4BF8D /* PhraseSuggestionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0F62ED5000000C4BF8D /* PhraseSuggestionTracker.swift */; };
+		BF14B1A42EE0000100C4BF8D /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B1A12EE0000100C4BF8D /* AuthManager.swift */; };
+		BF14B1A52EE0000100C4BF8D /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B1A22EE0000100C4BF8D /* SignInView.swift */; };
+		BF14B1A62EE0000100C4BF8D /* BaesideProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B1A32EE0000100C4BF8D /* BaesideProvider.swift */; };
+		BF14B1B22EE1000100C4BF8D /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B1B12EE1000100C4BF8D /* SupabaseClient.swift */; };
+		BF7977392F71AF2A005BD9DB /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = BF7977382F71AF2A005BD9DB /* Auth */; };
+				BF14B0A72ED9999900C4BF8D /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = BF14B0A62ED9999900C4BF8D /* RevenueCat */; };
+		BF79773C2F71B0C4005BD9DB /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = BF79773B2F71B0C4005BD9DB /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		BF14B0882ED245F400C4BF8D /* Xpanda.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Xpanda.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BF14B0A32ED9999900C4BF8D /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
+		BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddEditAutocorrectView.swift; sourceTree = "<group>"; };
 		BF14B0B02ED2827300C4BF8D /* ExpansionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpansionEngine.swift; sourceTree = "<group>"; };
 		BF14B0B12ED2827300C4BF8D /* XPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPManager.swift; sourceTree = "<group>"; };
 		BF14B0B32ED2827300C4BF8D /* XP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XP.swift; sourceTree = "<group>"; };
 		BF14B0B52ED2827300C4BF8D /* AddEditXPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddEditXPView.swift; sourceTree = "<group>"; };
-		BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddEditAutocorrectView.swift; sourceTree = "<group>"; };
 		BF14B0B62ED2827300C4BF8D /* ConflictView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictView.swift; sourceTree = "<group>"; };
 		BF14B0B72ED2827300C4BF8D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BF14B0B82ED2827300C4BF8D /* ImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportView.swift; sourceTree = "<group>"; };
@@ -51,13 +57,14 @@
 		BF14B0CD2ED28B8400C4BF8D /* XPProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPProgress.swift; sourceTree = "<group>"; };
 		BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperienceBar.swift; sourceTree = "<group>"; };
 		BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichTextEditor.swift; sourceTree = "<group>"; };
-		BF14B0E02ED4000000C4BF8D /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		BF14B0E12ED4000000C4BF8D /* LLMProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
-		BF14B0E22ED4000000C4BF8D /* ClaudeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProvider.swift; sourceTree = "<group>"; };
-		BF14B0E32ED4000000C4BF8D /* OpenAIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProvider.swift; sourceTree = "<group>"; };
 		BF14B0E42ED4000000C4BF8D /* LLMRephraseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMRephraseService.swift; sourceTree = "<group>"; };
 		BF14B0E52ED4000000C4BF8D /* AISettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISettingsView.swift; sourceTree = "<group>"; };
 		BF14B0F62ED5000000C4BF8D /* PhraseSuggestionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhraseSuggestionTracker.swift; sourceTree = "<group>"; };
+		BF14B1A12EE0000100C4BF8D /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
+		BF14B1A22EE0000100C4BF8D /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		BF14B1A32EE0000100C4BF8D /* BaesideProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaesideProvider.swift; sourceTree = "<group>"; };
+		BF14B1B12EE1000100C4BF8D /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +72,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BF14B0A72ED9999900C4BF8D /* RevenueCat in Frameworks */,
+				BF79773C2F71B0C4005BD9DB /* Supabase in Frameworks */,
+				BF7977392F71AF2A005BD9DB /* Auth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				BF14B0C02ED2827300C4BF8D /* Source */,
+				BF79773A2F71B0C4005BD9DB /* Frameworks */,
 				BF14B0892ED245F400C4BF8D /* Products */,
 			);
 			sourceTree = "<group>";
@@ -91,6 +102,7 @@
 			isa = PBXGroup;
 			children = (
 				BF14B0B02ED2827300C4BF8D /* ExpansionEngine.swift */,
+				BF14B1A12EE0000100C4BF8D /* AuthManager.swift */,
 				BF14B0F62ED5000000C4BF8D /* PhraseSuggestionTracker.swift */,
 				BF14B0B12ED2827300C4BF8D /* XPManager.swift */,
 			);
@@ -112,6 +124,8 @@
 				BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */,
 				BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */,
 				BF14B0B52ED2827300C4BF8D /* AddEditXPView.swift */,
+				BF14B1A22EE0000100C4BF8D /* SignInView.swift */,
+				BF14B0A32ED9999900C4BF8D /* PaywallView.swift */,
 				BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */,
 				BF14B0E52ED4000000C4BF8D /* AISettingsView.swift */,
 				BF14B0B62ED2827300C4BF8D /* ConflictView.swift */,
@@ -121,18 +135,6 @@
 				BF14B0BA2ED2827300C4BF8D /* XPDetailView.swift */,
 			);
 			path = Views;
-			sourceTree = "<group>";
-		};
-		BF14B0E62ED4000000C4BF8D /* Services */ = {
-			isa = PBXGroup;
-			children = (
-				BF14B0E02ED4000000C4BF8D /* KeychainHelper.swift */,
-				BF14B0E12ED4000000C4BF8D /* LLMProvider.swift */,
-				BF14B0E22ED4000000C4BF8D /* ClaudeProvider.swift */,
-				BF14B0E32ED4000000C4BF8D /* OpenAIProvider.swift */,
-				BF14B0E42ED4000000C4BF8D /* LLMRephraseService.swift */,
-			);
-			path = Services;
 			sourceTree = "<group>";
 		};
 		BF14B0C02ED2827300C4BF8D /* Source */ = {
@@ -148,6 +150,24 @@
 				BF14B0BF2ED2827300C4BF8D /* XpandaApp.swift */,
 			);
 			path = Source;
+			sourceTree = "<group>";
+		};
+		BF14B0E62ED4000000C4BF8D /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				BF14B0E12ED4000000C4BF8D /* LLMProvider.swift */,
+				BF14B1B12EE1000100C4BF8D /* SupabaseClient.swift */,
+				BF14B1A32EE0000100C4BF8D /* BaesideProvider.swift */,
+				BF14B0E42ED4000000C4BF8D /* LLMRephraseService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		BF79773A2F71B0C4005BD9DB /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -167,6 +187,9 @@
 			);
 			name = Xpanda;
 			packageProductDependencies = (
+				BF14B0A62ED9999900C4BF8D /* RevenueCat */,
+				BF7977382F71AF2A005BD9DB /* Auth */,
+				BF79773B2F71B0C4005BD9DB /* Supabase */,
 			);
 			productName = Xpanda;
 			productReference = BF14B0882ED245F400C4BF8D /* Xpanda.app */;
@@ -196,6 +219,10 @@
 			);
 			mainGroup = BF14B07F2ED245F400C4BF8D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				BF7977372F71AF2A005BD9DB /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				BF14B0A52ED9999900C4BF8D /* XCRemoteSwiftPackageReference "purchases-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BF14B0892ED245F400C4BF8D /* Products */;
 			projectDirPath = "";
@@ -227,6 +254,8 @@
 				BF14B0C22ED2827300C4BF8D /* ExpansionEngine.swift in Sources */,
 				BF14B0C32ED2827300C4BF8D /* ContentView.swift in Sources */,
 				BF14B0C42ED2827300C4BF8D /* AddEditXPView.swift in Sources */,
+				BF14B1A52EE0000100C4BF8D /* SignInView.swift in Sources */,
+				BF14B0A42ED9999900C4BF8D /* PaywallView.swift in Sources */,
 				BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */,
 				BF14B0C52ED2827300C4BF8D /* XP.swift in Sources */,
 				BF14B0C62ED2827300C4BF8D /* XPDetailView.swift in Sources */,
@@ -237,12 +266,12 @@
 				BF14B0C92ED2827300C4BF8D /* ConflictView.swift in Sources */,
 				BF14B0CA2ED2827300C4BF8D /* SettingsView.swift in Sources */,
 				BF14B0D02ED28B9800C4BF8D /* ExperienceBar.swift in Sources */,
-				BF14B0F02ED4000000C4BF8D /* KeychainHelper.swift in Sources */,
 				BF14B0F12ED4000000C4BF8D /* LLMProvider.swift in Sources */,
-				BF14B0F22ED4000000C4BF8D /* ClaudeProvider.swift in Sources */,
-				BF14B0F32ED4000000C4BF8D /* OpenAIProvider.swift in Sources */,
+				BF14B1B22EE1000100C4BF8D /* SupabaseClient.swift in Sources */,
+				BF14B1A62EE0000100C4BF8D /* BaesideProvider.swift in Sources */,
 				BF14B0F42ED4000000C4BF8D /* LLMRephraseService.swift in Sources */,
 				BF14B0F52ED4000000C4BF8D /* AISettingsView.swift in Sources */,
+				BF14B1A42EE0000100C4BF8D /* AuthManager.swift in Sources */,
 				BF14B0F72ED5000000C4BF8D /* PhraseSuggestionTracker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -448,6 +477,43 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BF7977372F71AF2A005BD9DB /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+		BF14B0A52ED9999900C4BF8D /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+		/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BF7977382F71AF2A005BD9DB /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF7977372F71AF2A005BD9DB /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+		BF79773B2F71B0C4005BD9DB /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF7977372F71AF2A005BD9DB /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+		BF14B0A62ED9999900C4BF8D /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF14B0A52ED9999900C4BF8D /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+		/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BF14B0802ED245F400C4BF8D /* Project object */;
 }

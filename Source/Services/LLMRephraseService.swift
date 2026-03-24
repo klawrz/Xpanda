@@ -10,26 +10,15 @@ class LLMRephraseService {
 
     // MARK: - Settings
 
-    var selectedProvider: LLMProviderType {
-        get {
-            guard let raw = UserDefaults.standard.string(forKey: "llm-provider"),
-                  let provider = LLMProviderType(rawValue: raw) else {
-                return .claude
-            }
-            return provider
-        }
-        set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: "llm-provider")
-        }
-    }
-
     var customSystemPrompt: String? {
         get { UserDefaults.standard.string(forKey: "llm-custom-prompt") }
         set { UserDefaults.standard.set(newValue, forKey: "llm-custom-prompt") }
     }
 
+    /// True when the user is signed in and has AI access.
+    /// TODO: also check RevenueCat ai_access entitlement once RevenueCat is integrated.
     var isConfigured: Bool {
-        KeychainHelper.loadString(forKey: selectedProvider.keychainKey) != nil
+        AuthManager.cachedHasAIAccess
     }
 
     // MARK: - System Prompt
@@ -42,26 +31,10 @@ class LLMRephraseService {
         return prompt
     }
 
-    // MARK: - Provider Factory
-
-    private func makeProvider() throws -> LLMProvider {
-        let providerType = selectedProvider
-        guard let apiKey = KeychainHelper.loadString(forKey: providerType.keychainKey) else {
-            throw LLMError.noAPIKey
-        }
-
-        switch providerType {
-        case .claude:
-            return ClaudeProvider(apiKey: apiKey)
-        case .openai:
-            return OpenAIProvider(apiKey: apiKey)
-        }
-    }
-
     // MARK: - Plain Text Rephrase
 
     func rephrasePlainText(_ text: String) async throws -> String {
-        let provider = try makeProvider()
+        let provider = BaesideProvider()
         return try await provider.rephrase(text: text, systemPrompt: effectiveSystemPrompt)
     }
 
