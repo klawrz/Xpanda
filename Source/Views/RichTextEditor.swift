@@ -28,6 +28,7 @@ struct VariableClickData: Equatable {
 }
 
 struct RichTextEditorWithToolbar: View {
+    @ObservedObject private var tutorialManager = TutorialManager.shared
     @Binding var attributedString: NSAttributedString
     @Binding var editorMode: EditorMode
     var rephraseEnabled: Binding<Bool>? = nil
@@ -41,6 +42,15 @@ struct RichTextEditorWithToolbar: View {
     var body: some View {
         VStack(spacing: 0) {
             RichTextToolbar(textViewHolder: textViewHolder, editorMode: editorMode, rephraseEnabled: rephraseEnabled, linkClickedAt: $linkClickedAt, fillInClickedData: $fillInClickedData, dateClickedData: $dateClickedData, timeClickedData: $timeClickedData, variableClickedData: $variableClickedData)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(
+                            (tutorialManager.isShowing && tutorialManager.currentStep == .toolbar)
+                                ? Color.yellow : Color.clear,
+                            lineWidth: 3
+                        )
+                        .allowsHitTesting(false)
+                )
             RichTextEditor(
                 attributedString: $attributedString,
                 editorMode: editorMode,
@@ -50,6 +60,15 @@ struct RichTextEditorWithToolbar: View {
                 dateClickedData: $dateClickedData,
                 timeClickedData: $timeClickedData,
                 variableClickedData: $variableClickedData
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(
+                        (tutorialManager.isShowing && tutorialManager.currentStep == .expansion)
+                            ? Color.yellow : Color.clear,
+                        lineWidth: 3
+                    )
+                    .allowsHitTesting(false)
             )
         }
         .cornerRadius(6)
@@ -1128,242 +1147,40 @@ struct RichTextToolbar: View {
     @State private var editingTimeRange: NSRange? = nil
 
     var body: some View {
-        HStack(spacing: 4) {
-            Group {
-                // Bold
-                Button(action: { toggleBold() }) {
-                    Image(systemName: "bold")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(isBoldActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Bold (⌘B)")
-
-                // Italic
-                Button(action: { toggleItalic() }) {
-                    Image(systemName: "italic")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(isItalicActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Italic (⌘I)")
-
-                // Underline
-                Button(action: { toggleUnderline() }) {
-                    Image(systemName: "underline")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(isUnderlineActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Underline (⌘U)")
-
-                // Lists Menu
-                Menu {
-                    Button { toggleBulletList() } label: {
-                        Label("Bullet List", systemImage: "list.bullet")
-                    }
-                    Button { toggleNumberedList() } label: {
-                        Label("Numbered List", systemImage: "list.number")
-                    }
-                } label: {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .background((isBulletListActive || isNumberedListActive) ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Lists")
-
-                // Insert Link
-                Button(action: { insertLink() }) {
-                    Image(systemName: "link")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Insert Link")
-
-                // Insert Image
-                Button(action: { selectAndInsertImage() }) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Insert Image")
+        ViewThatFits(in: .horizontal) {
+            // Single row
+            HStack(spacing: 4) {
+                formattingButtons
+                Divider().frame(height: 16)
+                insertButtons
+                utilityButtons
+                aiButton
+                Spacer(minLength: 0)
             }
-            .disabled(editorMode == .code)
-            .opacity(editorMode == .code ? 0.4 : 1.0)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
 
-            Divider()
-                .frame(height: 16)
-
-            Group {
-                // Insert Date
-                Button(action: {
-                    dateYearFormat = ""
-                    dateMonthFormat = ""
-                    dateDayFormat = ""
-                    dateWeekdayFormat = ""
-                    dateSeparator = ""
-                    editingDateRange = nil
-                    showingDateConfigDialog = true
-                }) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
+            // Two rows
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 4) {
+                    formattingButtons
+                    Divider().frame(height: 16)
+                    insertButtons
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Insert Date")
-
-                // Insert Time
-                Button(action: {
-                    timeHourFormat = ""
-                    timeMinuteFormat = ""
-                    timeSecondFormat = ""
-                    timeAMPMFormat = ""
-                    timeSeparator = ""
-                    editingTimeRange = nil
-                    showingTimeConfigDialog = true
-                }) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+                .padding(.bottom, 2)
+                HStack(spacing: 4) {
+                    utilityButtons
+                    aiButton
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Insert Time")
-
-                // Insert Fill-In Menu
-                Menu {
-                    Button("Single") {
-                        insertFillIn(type: .single)
-                    }
-                    Button("Multi") {
-                        insertFillIn(type: .multi)
-                    }
-                    Button("Select") {
-                        insertFillIn(type: .select)
-                    }
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help("Insert Fill-In")
+                .padding(.horizontal, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
             }
-            .disabled(editorMode == .code)
-            .opacity(editorMode == .code ? 0.4 : 1.0)
-
-            // Position Cursor (always visible)
-            Button(action: { positionCursor() }) {
-                CursorIconView()
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Position Cursor Here")
-
-            // Insert Clipboard (always visible)
-            Button(action: { insertClipboard() }) {
-                Image(systemName: "doc.on.clipboard")
-                    .font(.system(size: 15))
-                    .foregroundColor(.primary)
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Insert Clipboard")
-
-            // Insert Variable (always visible)
-            Menu {
-                let variables = XPManager.shared.allVariables
-                if variables.isEmpty {
-                    Text("No variables available")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(variables, id: \.id) { variable in
-                        Button(variable.keyword) {
-                            insertVariable(variableKeyword: variable.keyword)
-                        }
-                    }
-                }
-            } label: {
-                Image(systemName: "function")
-                    .font(.system(size: 15))
-                    .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
-                    .frame(width: 38, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(6)
-            .help("Insert Variable")
-
-            // AI Rephrase toggle (only shown when binding is provided)
-            if let rephraseBinding = rephraseEnabled {
-                Divider()
-                    .frame(height: 16)
-
-                Button(action: { rephraseBinding.wrappedValue.toggle() }) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 15))
-                        .foregroundColor(rephraseBinding.wrappedValue ? .purple : .primary)
-                        .frame(width: 38, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .background(rephraseBinding.wrappedValue ? Color.purple.opacity(0.2) : Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .help(rephraseBinding.wrappedValue ? "AI Rephrase enabled" : "AI Rephrase disabled")
-            }
-
-            Spacer()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
         .background(Color(NSColor.controlBackgroundColor))
         .onAppear {
             startUpdatingFormattingState()
@@ -1562,6 +1379,240 @@ struct RichTextToolbar: View {
                     showingTimeConfigDialog = false
                 }
             )
+        }
+    }
+
+    // MARK: - Toolbar Button Groups
+
+    @ViewBuilder
+    private var formattingButtons: some View {
+        Group {
+            // Bold
+            Button(action: { toggleBold() }) {
+                Image(systemName: "bold")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(isBoldActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Bold (⌘B)")
+
+            // Italic
+            Button(action: { toggleItalic() }) {
+                Image(systemName: "italic")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(isItalicActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Italic (⌘I)")
+
+            // Underline
+            Button(action: { toggleUnderline() }) {
+                Image(systemName: "underline")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(isUnderlineActive ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Underline (⌘U)")
+
+            // Lists Menu
+            Menu {
+                Button { toggleBulletList() } label: {
+                    Label("Bullet List", systemImage: "list.bullet")
+                }
+                Button { toggleNumberedList() } label: {
+                    Label("Numbered List", systemImage: "list.number")
+                }
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .background((isBulletListActive || isNumberedListActive) ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Lists")
+
+            // Insert Link
+            Button(action: { insertLink() }) {
+                Image(systemName: "link")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Insert Link")
+
+            // Insert Image
+            Button(action: { selectAndInsertImage() }) {
+                Image(systemName: "photo")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Insert Image")
+        }
+        .disabled(editorMode == .code)
+        .opacity(editorMode == .code ? 0.4 : 1.0)
+    }
+
+    @ViewBuilder
+    private var insertButtons: some View {
+        Group {
+            // Insert Date
+            Button(action: {
+                dateYearFormat = ""
+                dateMonthFormat = ""
+                dateDayFormat = ""
+                dateWeekdayFormat = ""
+                dateSeparator = ""
+                editingDateRange = nil
+                showingDateConfigDialog = true
+            }) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Insert Date")
+
+            // Insert Time
+            Button(action: {
+                timeHourFormat = ""
+                timeMinuteFormat = ""
+                timeSecondFormat = ""
+                timeAMPMFormat = ""
+                timeSeparator = ""
+                editingTimeRange = nil
+                showingTimeConfigDialog = true
+            }) {
+                Image(systemName: "clock")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Insert Time")
+
+            // Insert Fill-In Menu
+            Menu {
+                Button("Single") { insertFillIn(type: .single) }
+                Button("Multi") { insertFillIn(type: .multi) }
+                Button("Select") { insertFillIn(type: .select) }
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help("Insert Fill-In")
+        }
+        .disabled(editorMode == .code)
+        .opacity(editorMode == .code ? 0.4 : 1.0)
+    }
+
+    @ViewBuilder
+    private var utilityButtons: some View {
+        // Position Cursor
+        Button(action: { positionCursor() }) {
+            CursorIconView()
+                .frame(width: 38, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(6)
+        .help("Position Cursor Here")
+
+        // Insert Clipboard
+        Button(action: { insertClipboard() }) {
+            Image(systemName: "doc.on.clipboard")
+                .font(.system(size: 15))
+                .foregroundColor(.primary)
+                .frame(width: 38, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(6)
+        .help("Insert Clipboard")
+
+        // Insert Variable
+        Menu {
+            let variables = XPManager.shared.allVariables
+            if variables.isEmpty {
+                Text("No variables available")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(variables, id: \.id) { variable in
+                    Button(variable.keyword) {
+                        insertVariable(variableKeyword: variable.keyword)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "function")
+                .font(.system(size: 15))
+                .foregroundColor(Color(red: 0.3, green: 0.8, blue: 0.4))
+                .frame(width: 38, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(6)
+        .help("Insert Variable")
+    }
+
+    @ViewBuilder
+    private var aiButton: some View {
+        if let rephraseBinding = rephraseEnabled {
+            Divider()
+                .frame(height: 16)
+            Button(action: { rephraseBinding.wrappedValue.toggle() }) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15))
+                    .foregroundColor(rephraseBinding.wrappedValue ? .purple : .primary)
+                    .frame(width: 38, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(rephraseBinding.wrappedValue ? Color.purple.opacity(0.2) : Color.gray.opacity(0.1))
+            .cornerRadius(6)
+            .help(rephraseBinding.wrappedValue ? "AI Rephrase enabled" : "AI Rephrase disabled")
         }
     }
 

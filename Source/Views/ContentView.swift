@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var xpManager: XPManager
+    @EnvironmentObject var tutorialManager: TutorialManager
     @State private var selectedXP: XP?
     @State private var showingConflicts = false
     @State private var showingImportExport = false
@@ -11,12 +12,20 @@ struct ContentView: View {
     @State private var showingAddAutocorrect = false
 
     var body: some View {
+        GeometryReader { geo in
+        VStack(spacing: 0) {
         NavigationSplitView {
             // Sidebar
             VStack(spacing: 0) {
+                // Top padding so search bar always clears the toolbar / traffic lights
+                Color.clear.frame(height: 8)
+
                 // Search bar
                 SearchBar(text: $xpManager.searchText)
-                    .padding()
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                    .tutorialHighlight(for: .searchBar, with: tutorialManager)
 
                 // Filter section (folders/tags)
                 if !xpManager.allTags.isEmpty || !xpManager.allFolders.isEmpty {
@@ -52,6 +61,7 @@ struct ContentView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .tutorialHighlight(for: .xpsTab, with: tutorialManager)
 
                     Divider()
 
@@ -80,6 +90,7 @@ struct ContentView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .tutorialHighlight(for: .variablesTab, with: tutorialManager)
 
                     Divider()
 
@@ -109,6 +120,7 @@ struct ContentView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .tutorialHighlight(for: .autocorrectTab, with: tutorialManager)
                 }
                 .frame(height: 28)
                 .fixedSize(horizontal: false, vertical: true)
@@ -187,7 +199,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 250, ideal: 340, max: 400)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 400)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     HStack {
@@ -256,20 +268,23 @@ struct ContentView: View {
                 .toolbarBackground(.hidden, for: .windowToolbar)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                Divider()
-                HStack(spacing: 8) {
-                    Image("PandaLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 28, height: 28)
-                        .padding(.leading, 12)
-                    ExperienceBar(progress: xpManager.progress)
-                }
-                .background(Color(red: 0.3, green: 0.1, blue: 0.5))
+        .onChange(of: selectedXP) { newXP in
+            if newXP != nil {
+                tutorialManager.startPhaseTwoIfNeeded()
             }
         }
+        .onChange(of: tutorialManager.isShowing) { showing in
+            if !showing { xpManager.viewFilter = .xpsOnly }
+        }
+        .onChange(of: tutorialManager.currentStep) { step in
+            switch step {
+            case .xpsTab:         xpManager.viewFilter = .xpsOnly
+            case .variablesTab:   xpManager.viewFilter = .variablesOnly
+            case .autocorrectTab: xpManager.viewFilter = .autocorrectOnly
+            default: break
+            }
+        }
+        .frame(maxWidth: .infinity)
         .sheet(isPresented: $showingConflicts) {
             ConflictView()
                 .environmentObject(xpManager)
@@ -309,6 +324,31 @@ struct ContentView: View {
                 scrollToNewXP = newXP.id
             }
         }
+
+        .frame(maxWidth: .infinity)
+        .frame(height: max(100, geo.size.height - 57))
+        Divider()
+        HStack(spacing: 8) {
+            Image("PandaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+                .padding(.leading, 12)
+            ExperienceBar(progress: xpManager.progress)
+        }
+        .padding(.vertical, 8)
+        .frame(height: 56)
+        .background(Color(red: 0.3, green: 0.1, blue: 0.5))
+        } // end VStack
+        .overlay(alignment: tutorialManager.isShowingPhaseOne ? .bottomTrailing : .bottomLeading) {
+            if tutorialManager.isShowing {
+                TutorialCard(tutorial: tutorialManager)
+                    .padding(.bottom, 64)
+                    .padding(tutorialManager.isShowingPhaseOne ? .trailing : .leading, 16)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: tutorialManager.isShowing)
+            }
+        }
+        } // end GeometryReader
     }
 
     private func exportXPs() {

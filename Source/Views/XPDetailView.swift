@@ -3,6 +3,7 @@ import SwiftUI
 struct XPDetailView: View {
     let xp: XP
     @EnvironmentObject var xpManager: XPManager
+    @EnvironmentObject var tutorialManager: TutorialManager
 
     @State private var keyword: String
     @State private var richTextAttributedString: NSAttributedString
@@ -119,6 +120,7 @@ struct XPDetailView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                     )
+                    .tutorialHighlight(for: .keyword, with: tutorialManager, inset: 6)
 
                     // Show variable indicator if keyword starts with %
                     if keyword.hasPrefix("%") {
@@ -281,6 +283,7 @@ struct XPDetailView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
+                .tutorialHighlight(for: .tagsFolder, with: tutorialManager, inset: 6)
 
 
 

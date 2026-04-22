@@ -118,6 +118,14 @@ struct GeneralSettingsView: View {
                 }
                 .padding(.vertical, 8)
             }
+
+            Section {
+                Button("Restart Tutorial") {
+                    UserDefaults.standard.removeObject(forKey: "tutorial.phaseOneDone")
+                    UserDefaults.standard.removeObject(forKey: "tutorial.phaseTwoDone")
+                    TutorialManager.shared.startPhaseOneIfNeeded()
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()

@@ -12,6 +12,7 @@ struct XpandaApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var xpManager = XPManager.shared
     @StateObject private var authManager = AuthManager.shared
+    @StateObject private var tutorialManager = TutorialManager.shared
 
     var body: some Scene {
         WindowGroup {
@@ -20,7 +21,32 @@ struct XpandaApp: App {
                     ContentView()
                         .environmentObject(xpManager)
                         .environmentObject(authManager)
-                        .frame(minWidth: 900, minHeight: 700)
+                        .environmentObject(tutorialManager)
+                        .frame(minWidth: 620, minHeight: 560)
+                        .onAppear {
+                            tutorialManager.startPhaseOneIfNeeded()
+                            // After sign-in the window may still be at sign-in size (480×520).
+                            // SwiftUI sets contentMinSize from .frame(minWidth:minHeight:) but
+                            // does not auto-grow the window. Do it explicitly, once.
+                            // Resize the window to at least 620×560 if it's currently
+                            // too small (common after transitioning from the sign-in view
+                            // which locks the window at 480×520).
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                // mainWindow is the key window; fall back to first visible window
+                                guard let window = NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible }) else { return }
+                                let minW: CGFloat = 620, minH: CGFloat = 560
+                                window.contentMinSize = NSSize(width: minW, height: minH)
+                                // frameRect converts content size → full frame size (adds title bar)
+                                let minFrameSize = window.frameRect(
+                                    forContentRect: NSRect(origin: .zero, size: NSSize(width: minW, height: minH))
+                                ).size
+                                var frame = window.frame
+                                var changed = false
+                                if frame.size.width  < minFrameSize.width  { frame.size.width  = minFrameSize.width;  changed = true }
+                                if frame.size.height < minFrameSize.height { frame.size.height = minFrameSize.height; changed = true }
+                                if changed { window.setFrame(frame, display: true, animate: true) }
+                            }
+                        }
                 } else {
                     SignInView()
                         .environmentObject(authManager)
@@ -45,6 +71,7 @@ struct XpandaApp: App {
         }
     }
 }
+
 
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     var expansionEngine: ExpansionEngine?

@@ -36,7 +36,6 @@ class AuthManager: NSObject, ObservableObject {
                 case .initialSession, .signedIn, .tokenRefreshed:
                     if let session {
                         apply(session: session)
-                        resizeWindowForMainApp()
                         await loginRevenueCat(userID: session.user.id.uuidString)
                         await checkEntitlement()
                     } else {
@@ -119,21 +118,8 @@ class AuthManager: NSObject, ObservableObject {
         isSignedIn = true
         hasAIAccess = false
         isSubscribed = false
-        resizeWindowForMainApp()
     }
 
-    func resizeWindowForMainApp() {
-        DispatchQueue.main.async {
-            guard let window = NSApp.windows.first(where: { $0.isVisible }) else { return }
-            let screen = window.screen ?? NSScreen.main
-            let screenFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
-            let width: CGFloat = min(1100, screenFrame.width - 100)
-            let height: CGFloat = min(750, screenFrame.height - 100)
-            let x = screenFrame.midX - width / 2
-            let y = screenFrame.midY - height / 2
-            window.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true, animate: true)
-        }
-    }
 
     // MARK: - Sign Out
 

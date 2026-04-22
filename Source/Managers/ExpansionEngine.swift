@@ -12,6 +12,8 @@ class ExpansionEngine {
     private let maxBufferLength = 200
 
     private var isEnabled = true
+    private var isInAutocorrectExpansion: Bool = false
+    private var postTriggerBuffer: String = ""
 
     // Missed expansion notification tracking
     private var recentlyNotifiedXPs: [UUID: Date] = [:]
@@ -76,10 +78,24 @@ class ExpansionEngine {
 
     private func handleKeyEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         guard isEnabled else {
+            // During an autocorrect expansion, suppress printable chars so they cannot
+            // appear before the pasted correction. Cmd/Ctrl events are excluded so our
+            // own Cmd+V paste is never swallowed.
+            if isInAutocorrectExpansion,
+               type == .keyDown,
+               let nsEvent = NSEvent(cgEvent: event),
+               let chars = nsEvent.characters,
+               !chars.isEmpty,
+               chars.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 && $0.value < 0xF700 }),
+               !nsEvent.modifierFlags.contains(.command),
+               !nsEvent.modifierFlags.contains(.control) {
+                postTriggerBuffer += chars
+                return nil
+            }
             return Unmanaged.passRetained(event)
         }
 
-        // Don't trigger expansions inside Xpanda itself
+                // Don't trigger expansions inside Xpanda itself
         if let frontApp = NSWorkspace.shared.frontmostApplication,
            frontApp.bundleIdentifier == Bundle.main.bundleIdentifier {
             return Unmanaged.passRetained(event)
@@ -243,25 +259,40 @@ class ExpansionEngine {
                 self.showFillInDialog(for: xp, fields: fillInFields, proxy: proxy)
             }
         } else {
-            // No fill-ins, proceed with normal expansion
+            // No fill-ins: proceed with normal expansion.
+            // For autocorrect we suppress chars typed during the expansion window and
+            // merge them into the paste. For regular XPs the original path is unchanged.
+            if xp.isAutocorrect {
+                isInAutocorrectExpansion = true
+                postTriggerBuffer = ""
+            }
+
             DispatchQueue.main.async {
                 self.deleteText(count: xp.keyword.count)
 
-                // Wait a bit for deletions to process
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    // Paste the expansion (fast and reliable)
-                    self.pasteExpansion(xp, fillInValues: [:])
+                    if xp.isAutocorrect {
+                        // Snapshot any chars suppressed so far and merge into the paste.
+                        // A single Cmd+V delivers correction + continuation with no
+                        // separate retype step.
+                        let extraChars = self.postTriggerBuffer
+                        self.postTriggerBuffer = ""
+                        self.isInAutocorrectExpansion = false
+                        let pb = NSPasteboard.general
+                        let savedClipboard = pb.string(forType: .string)
+                        pb.clearContents()
+                        pb.setString(xp.expansion + extraChars, forType: .string)
+                        self.performPaste(cursorOffset: nil, savedClipboard: savedClipboard)
+                    } else {
+                        self.pasteExpansion(xp, fillInValues: [:])
+                    }
 
-                    // Re-enable event tap after expansion completes
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         self.isEnabled = true
                         if !xp.isAutocorrect {
                             self.playExpansionSound()
-
-                            // Add experience for using this XP
                             let leveledUp = XPManager.shared.addExperienceForExpansion()
                             if leveledUp {
-                                // TODO: Show level-up notification
                                 print("🎉 Level up! Now level \(XPManager.shared.progress.level)")
                             }
                         }
