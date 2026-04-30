@@ -272,12 +272,12 @@ class ExpansionEngine {
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     if xp.isAutocorrect {
-                        // Snapshot any chars suppressed so far and merge into the paste.
-                        // A single Cmd+V delivers correction + continuation with no
-                        // separate retype step.
+                        // Snapshot captured chars and merge into a single paste.
+                        // isInAutocorrectExpansion stays true until asyncAfter(0.3) so
+                        // that chars typed during performPaste's sleep are also suppressed
+                        // and cannot appear before the pasted correction.
                         let extraChars = self.postTriggerBuffer
                         self.postTriggerBuffer = ""
-                        self.isInAutocorrectExpansion = false
                         let pb = NSPasteboard.general
                         let savedClipboard = pb.string(forType: .string)
                         pb.clearContents()
@@ -288,7 +288,17 @@ class ExpansionEngine {
                     }
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.isInAutocorrectExpansion = false
                         self.isEnabled = true
+                        // Retype any chars suppressed after the paste snapshot (rare
+                        // edge case: user typed during performPaste's ~0.17s window).
+                        let lateChars = self.postTriggerBuffer
+                        self.postTriggerBuffer = ""
+                        if !lateChars.isEmpty {
+                            DispatchQueue.global(qos: .userInteractive).async {
+                                _ = self.typeText(lateChars)
+                            }
+                        }
                         if !xp.isAutocorrect {
                             self.playExpansionSound()
                             let leveledUp = XPManager.shared.addExperienceForExpansion()
