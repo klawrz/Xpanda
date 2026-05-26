@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 struct AISettingsView: View {
     @EnvironmentObject var xpManager: XPManager
@@ -73,9 +74,32 @@ struct AISettingsView: View {
                         .background(Color(NSColor.controlBackgroundColor))
                         .cornerRadius(8)
                     } else {
-                        Text("Not signed in.")
-                            .font(.body)
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 10) {
+                            Image(systemName: "person.crop.circle")
+                                .font(.title2)
+                                .foregroundColor(.secondary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Not signed in")
+                                    .font(.body)
+                                Text("Sign in to access AI rephrasing.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            SignInWithAppleButton(.signIn) { request in
+                                request.requestedScopes = [.fullName, .email]
+                            } onCompletion: { result in
+                                authManager.handleSignInWithApple(result: result)
+                            }
+                            .signInWithAppleButtonStyle(.white)
+                            .frame(width: 160, height: 32)
+                        }
+                        .padding(10)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
                     }
                 }
 
