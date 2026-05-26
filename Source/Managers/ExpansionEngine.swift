@@ -314,37 +314,40 @@ class ExpansionEngine {
 
     private func deleteText(count: Int) {
         let deleteKey = CGKeyCode(51) // Backspace key code
+        // Use a private event source so these synthetic events don't inherit or
+        // pollute the session's modifier key state (prevents stray Cmd+letter shortcuts).
+        let source = CGEventSource(stateID: .privateState)
 
         for _ in 0..<count {
-            if let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: deleteKey, keyDown: true),
-               let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: deleteKey, keyDown: false) {
-                keyDownEvent.post(tap: .cghidEventTap)
-                keyUpEvent.post(tap: .cghidEventTap)
-                Thread.sleep(forTimeInterval: 0.015)
+            if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: deleteKey, keyDown: true),
+               let keyUp   = CGEvent(keyboardEventSource: source, virtualKey: deleteKey, keyDown: false) {
+                keyDown.post(tap: .cghidEventTap)
+                keyUp.post(tap: .cghidEventTap)
             }
         }
+        // Single settle pause — the app processes backspaces in queue order,
+        // so no per-character sleep is needed.
+        Thread.sleep(forTimeInterval: 0.025)
     }
 
     private func typeText(_ text: String) -> TimeInterval {
-        // Use a consistent, slower typing speed for reliability
-        // This prevents characters from being dropped or reordered
         let delay: TimeInterval = 0.02 // 20ms per character (50 chars/second)
+        // Private source: isolates these synthetic events from the session's
+        // modifier state so they cannot accidentally inherit a stray Command flag.
+        let source = CGEventSource(stateID: .privateState)
 
         for char in text {
-            // Type all characters (including newlines) as unicode strings
-            // This prevents newlines from triggering form submissions
             let string = String(char)
-            if let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
-               let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) {
-                keyDownEvent.keyboardSetUnicodeString(stringLength: string.utf16.count, unicodeString: Array(string.utf16))
-                keyUpEvent.keyboardSetUnicodeString(stringLength: string.utf16.count, unicodeString: Array(string.utf16))
-                keyDownEvent.post(tap: .cghidEventTap)
-                keyUpEvent.post(tap: .cghidEventTap)
+            if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+               let keyUp   = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) {
+                keyDown.keyboardSetUnicodeString(stringLength: string.utf16.count, unicodeString: Array(string.utf16))
+                keyUp.keyboardSetUnicodeString(stringLength: string.utf16.count, unicodeString: Array(string.utf16))
+                keyDown.post(tap: .cghidEventTap)
+                keyUp.post(tap: .cghidEventTap)
             }
             Thread.sleep(forTimeInterval: delay)
         }
 
-        // Return total time taken to type
         return Double(text.count) * delay
     }
 
@@ -674,28 +677,26 @@ class ExpansionEngine {
     private func performPaste(cursorOffset: Int?, savedClipboard: String?) {
         let pasteboard = NSPasteboard.general
 
-        // Simulate Cmd+V using CGEvent (more reliable than AppleScript)
-        Thread.sleep(forTimeInterval: 0.05)
-
-        let cmdKey = CGEventFlags.maskCommand
+        // Private source: events are isolated from the real session modifier state,
+        // so a synthetic Cmd+V cannot leave Command "stuck" for subsequent keystrokes.
+        let source = CGEventSource(stateID: .privateState)
         let vKeyCode = CGKeyCode(9) // V key
 
-        // Key down
-        if let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: vKeyCode, keyDown: true) {
-            keyDownEvent.flags = cmdKey
-            keyDownEvent.post(tap: .cghidEventTap)
+        // Key down — Command modifier set for the paste
+        if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true) {
+            keyDown.flags = .maskCommand
+            keyDown.post(tap: .cghidEventTap)
         }
 
-        Thread.sleep(forTimeInterval: 0.02)
-
-        // Key up
-        if let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: vKeyCode, keyDown: false) {
-            keyUpEvent.flags = cmdKey
-            keyUpEvent.post(tap: .cghidEventTap)
+        // Key up — explicitly clear all modifier flags so Command does not bleed
+        // into subsequent events processed from the queue
+        if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) {
+            keyUp.flags = []
+            keyUp.post(tap: .cghidEventTap)
         }
 
         // Wait for paste to complete before any further operations
-        Thread.sleep(forTimeInterval: 0.1)
+        Thread.sleep(forTimeInterval: 0.08)
 
         // Reposition cursor if needed
         if let offset = cursorOffset {
