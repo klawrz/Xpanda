@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */; };
+		049CFCAD91460C3CE70B18B6 /* RephraseHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3316C2E5991C44F6CF66CA /* RephraseHUD.swift */; };
 		BF14B0A42ED9999900C4BF8D /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A32ED9999900C4BF8D /* PaywallView.swift */; };
 		BF14B0A72ED9999900C4BF8D /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = BF14B0A62ED9999900C4BF8D /* RevenueCat */; };
 		BF14B0C12ED2827300C4BF8D /* XpandaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0BF2ED2827300C4BF8D /* XpandaApp.swift */; };
@@ -42,6 +43,7 @@
 /* Begin PBXFileReference section */
 		BF14B0882ED245F400C4BF8D /* Xpanda.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Xpanda.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddEditAutocorrectView.swift; sourceTree = "<group>"; };
+		CA3316C2E5991C44F6CF66CA /* RephraseHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RephraseHUD.swift; sourceTree = "<group>"; };
 		BF14B0A32ED9999900C4BF8D /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		BF14B0B02ED2827300C4BF8D /* ExpansionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpansionEngine.swift; sourceTree = "<group>"; };
 		BF14B0B12ED2827300C4BF8D /* XPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPManager.swift; sourceTree = "<group>"; };
@@ -132,6 +134,7 @@
 				BF14B1A22EE0000100C4BF8D /* SignInView.swift */,
 				BF14B0A32ED9999900C4BF8D /* PaywallView.swift */,
 				BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */,
+				CA3316C2E5991C44F6CF66CA /* RephraseHUD.swift */,
 				BF5A1111AAAABBBB00CC0001 /* TutorialCard.swift */,
 				BF14B0E52ED4000000C4BF8D /* AISettingsView.swift */,
 				BF14B0B62ED2827300C4BF8D /* ConflictView.swift */,
@@ -264,6 +267,7 @@
 				BF14B1A52EE0000100C4BF8D /* SignInView.swift in Sources */,
 				BF14B0A42ED9999900C4BF8D /* PaywallView.swift in Sources */,
 				BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */,
+				049CFCAD91460C3CE70B18B6 /* RephraseHUD.swift in Sources */,
 				BF5A2222AAAABBBB00CC0001 /* TutorialCard.swift in Sources */,
 				BF14B0C52ED2827300C4BF8D /* XP.swift in Sources */,
 				BF14B0C62ED2827300C4BF8D /* XPDetailView.swift in Sources */,

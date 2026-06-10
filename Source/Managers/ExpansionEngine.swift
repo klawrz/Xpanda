@@ -3,7 +3,7 @@ import ApplicationServices
 import AppKit
 import UserNotifications
 
-class ExpansionEngine {
+class ExpansionEngine: @unchecked Sendable {
     static let shared = ExpansionEngine()
 
     private var eventTap: CFMachPort?
@@ -14,6 +14,10 @@ class ExpansionEngine {
     private var isEnabled = true
     private var isInAutocorrectExpansion: Bool = false
     private var postTriggerBuffer: String = ""
+
+    private var isInRephraseTask: Bool = false
+    private var rephraseBuffer: String = ""
+    private var clipboardRestoreWork: DispatchWorkItem?
 
     // Missed expansion notification tracking
     private var recentlyNotifiedXPs: [UUID: Date] = [:]
@@ -77,6 +81,14 @@ class ExpansionEngine {
     }
 
     private func handleKeyEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Log Cmd+V events for double-paste debugging
+        if type == .keyDown {
+            let kc = event.getIntegerValueField(.keyboardEventKeycode)
+            if kc == 9, let nse = NSEvent(cgEvent: event), nse.modifierFlags.contains(.command) {
+                print("⌨️ Cmd+V tap (isEnabled=\(isEnabled))")
+            }
+        }
+
         guard isEnabled else {
             // During an autocorrect expansion, suppress printable chars so they cannot
             // appear before the pasted correction. Cmd/Ctrl events are excluded so our
@@ -90,6 +102,19 @@ class ExpansionEngine {
                !nsEvent.modifierFlags.contains(.command),
                !nsEvent.modifierFlags.contains(.control) {
                 postTriggerBuffer += chars
+                return nil
+            }
+            // During an AI rephrase, buffer printable chars so they are typed after
+            // the rephrased text lands rather than interrupting the paste.
+            if isInRephraseTask,
+               type == .keyDown,
+               let nsEvent = NSEvent(cgEvent: event),
+               let chars = nsEvent.characters,
+               !chars.isEmpty,
+               chars.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 && $0.value < 0xF700 }),
+               !nsEvent.modifierFlags.contains(.command),
+               !nsEvent.modifierFlags.contains(.control) {
+                rephraseBuffer += chars
                 return nil
             }
             return Unmanaged.passRetained(event)
@@ -119,6 +144,13 @@ class ExpansionEngine {
 
         if type == .keyDown {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+            // Don't process keyboard shortcuts — Cmd+key or Ctrl+key events should
+            // never contribute to the typed buffer or trigger expansions.
+            if let nsEvent = NSEvent(cgEvent: event),
+               (nsEvent.modifierFlags.contains(.command) || nsEvent.modifierFlags.contains(.control)) {
+                return Unmanaged.passRetained(event)
+            }
 
             // Handle special keys first
             switch keyCode {
@@ -289,7 +321,11 @@ class ExpansionEngine {
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         self.isInAutocorrectExpansion = false
-                        self.isEnabled = true
+                        // Don't re-enable yet if a rephrase Task is still running —
+                        // it will re-enable isEnabled when the paste completes.
+                        if !self.isInRephraseTask {
+                            self.isEnabled = true
+                        }
                         // Retype any chars suppressed after the paste snapshot (rare
                         // edge case: user typed during performPaste's ~0.17s window).
                         let lateChars = self.postTriggerBuffer
@@ -410,7 +446,9 @@ class ExpansionEngine {
         // Save current clipboard contents before we clear it
         let savedClipboardString = pasteboard.string(forType: .string)
 
-        print("📋 Pasting expansion for XP: \(xp.keyword)")
+        print("\n════════════════════════════════════════")
+        print("📋 NEW EXPANSION: \(xp.keyword)")
+        print("════════════════════════════════════════")
         print("   Saved clipboard: \(savedClipboardString ?? "nil")")
         print("   XP.expansion plain text: \(xp.expansion)")
         print("   XP.isRichText: \(xp.isRichText)")
@@ -431,25 +469,35 @@ class ExpansionEngine {
             if xp.rephraseEnabled && LLMRephraseService.shared.isConfigured {
                 let capturedOffset = cursorOffset
                 let capturedClipboard = savedClipboardString
+                self.isInRephraseTask = true
+                self.rephraseBuffer = ""
+                MainActor.assumeIsolated { RephraseHUD.shared.show() }
                 Task {
                     let finalText: String
                     do {
-                        finalText = try await withTimeout(seconds: 3.0) {
-                            try await LLMRephraseService.shared.rephrasePlainText(processedText)
+                        finalText = try await withTimeout(seconds: 10.0) {
+                            try await LLMRephraseService.shared.rephrasePlainText(processedText, xpId: xp.id)
                         }
                     } catch {
-                        switch error as? LLMError {
-                        case .notAuthenticated, .notSubscribed:
-                            break // silently skip — user not signed in or no subscription
-                        default:
-                            print("Rephrase failed, using original: \(error)")
-                        }
+                        print("⚠️ Rephrase error: \(error)")
                         finalText = processedText
                     }
                     await MainActor.run {
+                        RephraseHUD.shared.hide()
+                        print("✨ Pasting rephrased text: \(finalText)")
                         let pb = NSPasteboard.general
                         pb.setString(finalText, forType: .string)
                         self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
+                        let buffered = self.rephraseBuffer
+                        self.rephraseBuffer = ""
+                        self.typedBuffer = ""  // prevent re-trigger from buffered chars
+                        self.isInRephraseTask = false
+                        self.isEnabled = true
+                        if !buffered.isEmpty {
+                            DispatchQueue.global(qos: .userInteractive).async {
+                                _ = self.typeText(buffered)
+                            }
+                        }
                     }
                 }
                 return
@@ -491,26 +539,36 @@ class ExpansionEngine {
                 let capturedOffset = cursorOffset
                 let capturedClipboard = savedClipboardString
                 let capturedProcessed = processedAttributedString
+                self.isInRephraseTask = true
+                self.rephraseBuffer = ""
+                MainActor.assumeIsolated { RephraseHUD.shared.show() }
                 Task {
                     let result: NSAttributedString
                     do {
-                        result = try await withTimeout(seconds: 3.0) {
-                            try await LLMRephraseService.shared.rephraseAttributedString(capturedProcessed)
+                        result = try await withTimeout(seconds: 10.0) {
+                            try await LLMRephraseService.shared.rephraseAttributedString(capturedProcessed, xpId: xp.id)
                         }
                     } catch {
-                        switch error as? LLMError {
-                        case .notAuthenticated, .notSubscribed:
-                            break // silently skip — user not signed in or no subscription
-                        default:
-                            print("Rephrase failed, using original: \(error)")
-                        }
+                        print("⚠️ Rephrase error: \(error)")
                         result = capturedProcessed
                     }
                     nonisolated(unsafe) let finalAttrStr = result
                     await MainActor.run {
+                        RephraseHUD.shared.hide()
+                        print("✨ Pasting rephrased text: \(finalAttrStr.string)")
                         let pb = NSPasteboard.general
                         self.writeRichTextToPasteboard(finalAttrStr, pasteboard: pb)
                         self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
+                        let buffered = self.rephraseBuffer
+                        self.rephraseBuffer = ""
+                        self.typedBuffer = ""  // prevent re-trigger from buffered chars
+                        self.isInRephraseTask = false
+                        self.isEnabled = true
+                        if !buffered.isEmpty {
+                            DispatchQueue.global(qos: .userInteractive).async {
+                                _ = self.typeText(buffered)
+                            }
+                        }
                     }
                 }
                 return
@@ -527,25 +585,35 @@ class ExpansionEngine {
             if xp.rephraseEnabled && LLMRephraseService.shared.isConfigured {
                 let capturedOffset = cursorOffset
                 let capturedClipboard = savedClipboardString
+                self.isInRephraseTask = true
+                self.rephraseBuffer = ""
+                MainActor.assumeIsolated { RephraseHUD.shared.show() }
                 Task {
                     let finalText: String
                     do {
-                        finalText = try await withTimeout(seconds: 3.0) {
-                            try await LLMRephraseService.shared.rephrasePlainText(processedText)
+                        finalText = try await withTimeout(seconds: 10.0) {
+                            try await LLMRephraseService.shared.rephrasePlainText(processedText, xpId: xp.id)
                         }
                     } catch {
-                        switch error as? LLMError {
-                        case .notAuthenticated, .notSubscribed:
-                            break // silently skip — user not signed in or no subscription
-                        default:
-                            print("Rephrase failed, using original: \(error)")
-                        }
+                        print("⚠️ Rephrase error: \(error)")
                         finalText = processedText
                     }
                     await MainActor.run {
+                        RephraseHUD.shared.hide()
+                        print("✨ Pasting rephrased text: \(finalText)")
                         let pb = NSPasteboard.general
                         pb.setString(finalText, forType: .string)
                         self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
+                        let buffered = self.rephraseBuffer
+                        self.rephraseBuffer = ""
+                        self.typedBuffer = ""  // prevent re-trigger from buffered chars
+                        self.isInRephraseTask = false
+                        self.isEnabled = true
+                        if !buffered.isEmpty {
+                            DispatchQueue.global(qos: .userInteractive).async {
+                                _ = self.typeText(buffered)
+                            }
+                        }
                     }
                 }
                 return
@@ -554,6 +622,7 @@ class ExpansionEngine {
             pasteboard.setString(processedText, forType: .string)
         }
 
+        print("⚠️ Fallthrough performPaste — outputPlainText=\(xp.outputPlainText) isRichText=\(xp.isRichText) rephraseEnabled=\(xp.rephraseEnabled) isConfigured=\(LLMRephraseService.shared.isConfigured)")
         performPaste(cursorOffset: cursorOffset, savedClipboard: savedClipboardString)
     }
 
@@ -562,11 +631,11 @@ class ExpansionEngine {
         // For images, we need to write using the proper pasteboard types
         // Try multiple formats for maximum compatibility
 
-        // 1. Write as NSAttributedString object (works for native macOS apps)
-        pasteboard.writeObjects([processedAttributedString])
-        print("   ✓ Wrote NSAttributedString object to pasteboard")
+        // Write explicit formats only — do NOT call writeObjects() since it implicitly
+        // calls clearContents() and writes its own RTF/plain text representations,
+        // leaving duplicate pasteboard entries that cause some apps to paste twice.
 
-        // 2. Write HTML with embedded images (for web apps like Google Docs)
+        // 1. Write HTML with embedded images (for web apps like Google Docs)
         // Build HTML with both text and base64-encoded images
         var hasImages = false
         var htmlParts: [(index: Int, html: String)] = []
@@ -675,6 +744,7 @@ class ExpansionEngine {
     }
 
     private func performPaste(cursorOffset: Int?, savedClipboard: String?) {
+        print("🔵 performPaste called (isMainThread=\(Thread.isMainThread))")
         let pasteboard = NSPasteboard.general
 
         // Private source: events are isolated from the real session modifier state,
@@ -682,7 +752,6 @@ class ExpansionEngine {
         let source = CGEventSource(stateID: .privateState)
         let vKeyCode = CGKeyCode(9) // V key
 
-        // Key down — Command modifier set for the paste
         if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true) {
             keyDown.flags = .maskCommand
             keyDown.post(tap: .cghidEventTap)
@@ -715,21 +784,24 @@ class ExpansionEngine {
             }
         }
 
-        // Restore original clipboard contents after a safe delay (2 seconds)
-        // This gives all applications enough time to read from the clipboard
-        // Use a background thread to avoid blocking
+        // Restore original clipboard contents after a safe delay (2 seconds).
+        // Cancel any previously scheduled restoration to prevent stale tasks from
+        // corrupting the clipboard mid-paste when expansions fire in quick succession.
+        clipboardRestoreWork?.cancel()
         let savedClipboardString = savedClipboard
-        DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 2.0) {
+        let work = DispatchWorkItem {
             let pasteboard = NSPasteboard.general
             if let savedClipboard = savedClipboardString {
+                print("📋 Restoring clipboard: \(savedClipboard.prefix(40))")
                 pasteboard.clearContents()
                 pasteboard.setString(savedClipboard, forType: .string)
-                print("   ✓ Restored original clipboard content after 2 second delay")
             } else {
+                print("📋 Clearing clipboard (was empty before expansion)")
                 pasteboard.clearContents()
-                print("   ✓ Cleared clipboard after 2 second delay (was empty before)")
             }
         }
+        clipboardRestoreWork = work
+        DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 2.0, execute: work)
     }
 
     private func moveCursorLeft(steps: Int) {
@@ -1086,12 +1158,12 @@ class ExpansionEngine {
                                 let formattedDate = self.formatDate(with: format)
                                 print("     → Replacing with formatted \(type): \(formattedDate)")
 
-                                // Get attributes at this location to preserve formatting
+                                // Inherit attributes from surrounding text
                                 var attributes: [NSAttributedString.Key: Any] = [:]
-                                if range.location < mutableString.length {
-                                    attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
-                                    attributes[.font] = NSFont.systemFont(ofSize: 13)
-                                    attributes[.foregroundColor] = NSColor.labelColor
+                                let lookAt = range.location > 0 ? range.location - 1 : (range.location + range.length < mutableString.length ? range.location + range.length : range.location)
+                                if lookAt < mutableString.length {
+                                    attributes = mutableString.attributes(at: lookAt, effectiveRange: nil)
+                                    attributes.removeValue(forKey: .attachment)
                                 }
                                 indicesToReplace.append((range: range, attributes: attributes, replacementText: formattedDate))
                             }
@@ -1104,12 +1176,15 @@ class ExpansionEngine {
                             let replacementText = fillInValues[label] ?? ""
                             print("     → Replacing with value: \(replacementText)")
 
-                            // Get attributes at this location to preserve formatting
+                            // Inherit attributes from the character just before (or after) the
+                            // token so the substituted value blends with surrounding text.
+                            // Using hardcoded font/color here would create a distinct attribute
+                            // run that breaks the proportional mapping in rephraseAttributedString.
                             var attributes: [NSAttributedString.Key: Any] = [:]
-                            if range.location < mutableString.length {
-                                attributes = mutableString.attributes(at: range.location, effectiveRange: nil)
-                                attributes[.font] = NSFont.systemFont(ofSize: 13)
-                                attributes[.foregroundColor] = NSColor.labelColor
+                            let lookAt = range.location > 0 ? range.location - 1 : (range.location + range.length < mutableString.length ? range.location + range.length : range.location)
+                            if lookAt < mutableString.length {
+                                attributes = mutableString.attributes(at: lookAt, effectiveRange: nil)
+                                attributes.removeValue(forKey: .attachment)
                             }
                             indicesToReplace.append((range: range, attributes: attributes, replacementText: replacementText))
                         }

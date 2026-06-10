@@ -18,15 +18,18 @@ Deno.serve(async (req) => {
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
-    // 2. Verify JWT and get user via Supabase client
+    // 2. Verify JWT and get user — pass the token explicitly (required in supabase-js v2)
+    const jwt = authHeader.replace(/^Bearer\s+/i, "");
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser(jwt);
     if (authError || !user) {
+      console.error("Auth error:", authError?.message);
       return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
@@ -50,7 +53,7 @@ Deno.serve(async (req) => {
     }
 
     const effectivePrompt = systemPrompt ??
-      "Rephrase the following text to add natural variety while preserving the original meaning, tone, and approximate length. Do not add explanations or notes. Return only the rephrased text.";
+      "Rephrase the following text into a fresh version. Rules: (1) Preserve the grammatical person, voice, and tone of the original exactly — do not switch from second person to first person, or from active to passive, or change the formality level. (2) Preserve every factual claim and commitment — do not drop or weaken anything. (3) Match the word count closely — stay within 3 words of the original length. (4) Vary the wording and sentence structure so it does not sound like the previous versions. (5) Use only commas, periods, and apostrophes — no dashes of any kind. Return only the rephrased text with no explanation.";
 
     // 5. Call Claude
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -61,7 +64,7 @@ Deno.serve(async (req) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: "claude-sonnet-4-6",
         max_tokens: 1024,
         system: effectivePrompt,
         messages: [{ role: "user", content: text }],

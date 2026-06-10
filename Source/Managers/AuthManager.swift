@@ -141,10 +141,16 @@ class AuthManager: NSObject, ObservableObject {
         do {
             let customerInfo = try await Purchases.shared.customerInfo()
             let active = customerInfo.entitlements["support_safari_pro"]?.isActive == true
-            hasAIAccess  = active
-            isSubscribed = active
+            if active {
+                hasAIAccess  = true
+                isSubscribed = true
+                return
+            }
+            // RC returned but no active entitlement — also check Supabase
+            // (covers manual grants, dev overrides, and Supabase-only subscribers)
+            await checkEntitlementViaSupabase()
         } catch {
-            // Fall back to Supabase table if RevenueCat is unavailable
+            // RC unavailable — fall back to Supabase table
             await checkEntitlementViaSupabase()
         }
     }

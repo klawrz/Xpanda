@@ -12,12 +12,21 @@ struct BaesideProvider: LLMProvider {
 
     func rephrase(text: String, systemPrompt: String?) async throws -> String {
         let isSignedIn = await MainActor.run { AuthManager.shared.isSignedIn }
+        print("🔑 BaesideProvider: isSignedIn=\(isSignedIn)")
         guard isSignedIn else {
+            print("🔑 BaesideProvider: throwing notAuthenticated — isSignedIn is false")
             throw LLMError.notAuthenticated
         }
 
-        let session = try await supabase.auth.session
-        let jwt = session.accessToken
+        let jwt: String
+        do {
+            let session = try await supabase.auth.session
+            print("🔑 BaesideProvider: got session for user \(session.user.id)")
+            jwt = session.accessToken
+        } catch {
+            print("🔑 BaesideProvider: supabase.auth.session threw: \(error)")
+            throw LLMError.notAuthenticated
+        }
 
         var request = URLRequest(url: Self.endpointURL)
         request.httpMethod = "POST"
