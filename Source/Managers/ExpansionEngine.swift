@@ -81,6 +81,16 @@ class ExpansionEngine: @unchecked Sendable {
     }
 
     private func handleKeyEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // macOS disables the event tap if the callback is too slow. Re-enable immediately.
+        // kCGEventTapDisabledByTimeout = 0xFFFFFFFE, kCGEventTapDisabledByUserInput = 0xFFFFFFFF
+        if type.rawValue == 0xFFFFFFFE || type.rawValue == 0xFFFFFFFF {
+            print("⚠️ Event tap was disabled by macOS (type=\(type.rawValue)) — re-enabling")
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return nil
+        }
+
         // Log Cmd+V events for double-paste debugging
         if type == .keyDown {
             let kc = event.getIntegerValueField(.keyboardEventKeycode)
@@ -443,6 +453,11 @@ class ExpansionEngine: @unchecked Sendable {
     private func pasteExpansion(_ xp: XP, fillInValues: [String: String]) {
         let pasteboard = NSPasteboard.general
 
+        // Remember which app triggered the expansion so we can return focus to it
+        // after an async rephrase completes, even if the user has switched away.
+        let expansionTargetApp = NSWorkspace.shared.frontmostApplication
+        print("🎯 expansionTargetApp = \(expansionTargetApp?.localizedName ?? "nil") (\(expansionTargetApp?.bundleIdentifier ?? "nil"))")
+
         // Save current clipboard contents before we clear it
         let savedClipboardString = pasteboard.string(forType: .string)
 
@@ -469,6 +484,7 @@ class ExpansionEngine: @unchecked Sendable {
             if xp.rephraseEnabled && LLMRephraseService.shared.isConfigured {
                 let capturedOffset = cursorOffset
                 let capturedClipboard = savedClipboardString
+                let capturedTargetApp = expansionTargetApp
                 self.isInRephraseTask = true
                 self.rephraseBuffer = ""
                 MainActor.assumeIsolated { RephraseHUD.shared.show() }
@@ -485,19 +501,15 @@ class ExpansionEngine: @unchecked Sendable {
                     await MainActor.run {
                         RephraseHUD.shared.hide()
                         print("✨ Pasting rephrased text: \(finalText)")
-                        let pb = NSPasteboard.general
-                        pb.setString(finalText, forType: .string)
-                        self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
+                        NSPasteboard.general.setString(finalText, forType: .string)
                         let buffered = self.rephraseBuffer
                         self.rephraseBuffer = ""
-                        self.typedBuffer = ""  // prevent re-trigger from buffered chars
+                        self.typedBuffer = ""
                         self.isInRephraseTask = false
-                        self.isEnabled = true
-                        if !buffered.isEmpty {
-                            DispatchQueue.global(qos: .userInteractive).async {
-                                _ = self.typeText(buffered)
-                            }
-                        }
+                        self.activateIfNeededThenPaste(targetApp: capturedTargetApp,
+                                                       cursorOffset: capturedOffset,
+                                                       savedClipboard: capturedClipboard,
+                                                       buffered: buffered)
                     }
                 }
                 return
@@ -539,6 +551,7 @@ class ExpansionEngine: @unchecked Sendable {
                 let capturedOffset = cursorOffset
                 let capturedClipboard = savedClipboardString
                 let capturedProcessed = processedAttributedString
+                let capturedTargetApp = expansionTargetApp
                 self.isInRephraseTask = true
                 self.rephraseBuffer = ""
                 MainActor.assumeIsolated { RephraseHUD.shared.show() }
@@ -558,17 +571,14 @@ class ExpansionEngine: @unchecked Sendable {
                         print("✨ Pasting rephrased text: \(finalAttrStr.string)")
                         let pb = NSPasteboard.general
                         self.writeRichTextToPasteboard(finalAttrStr, pasteboard: pb)
-                        self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
                         let buffered = self.rephraseBuffer
                         self.rephraseBuffer = ""
-                        self.typedBuffer = ""  // prevent re-trigger from buffered chars
+                        self.typedBuffer = ""
                         self.isInRephraseTask = false
-                        self.isEnabled = true
-                        if !buffered.isEmpty {
-                            DispatchQueue.global(qos: .userInteractive).async {
-                                _ = self.typeText(buffered)
-                            }
-                        }
+                        self.activateIfNeededThenPaste(targetApp: capturedTargetApp,
+                                                       cursorOffset: capturedOffset,
+                                                       savedClipboard: capturedClipboard,
+                                                       buffered: buffered)
                     }
                 }
                 return
@@ -585,6 +595,7 @@ class ExpansionEngine: @unchecked Sendable {
             if xp.rephraseEnabled && LLMRephraseService.shared.isConfigured {
                 let capturedOffset = cursorOffset
                 let capturedClipboard = savedClipboardString
+                let capturedTargetApp = expansionTargetApp
                 self.isInRephraseTask = true
                 self.rephraseBuffer = ""
                 MainActor.assumeIsolated { RephraseHUD.shared.show() }
@@ -601,19 +612,15 @@ class ExpansionEngine: @unchecked Sendable {
                     await MainActor.run {
                         RephraseHUD.shared.hide()
                         print("✨ Pasting rephrased text: \(finalText)")
-                        let pb = NSPasteboard.general
-                        pb.setString(finalText, forType: .string)
-                        self.performPaste(cursorOffset: capturedOffset, savedClipboard: capturedClipboard)
+                        NSPasteboard.general.setString(finalText, forType: .string)
                         let buffered = self.rephraseBuffer
                         self.rephraseBuffer = ""
-                        self.typedBuffer = ""  // prevent re-trigger from buffered chars
+                        self.typedBuffer = ""
                         self.isInRephraseTask = false
-                        self.isEnabled = true
-                        if !buffered.isEmpty {
-                            DispatchQueue.global(qos: .userInteractive).async {
-                                _ = self.typeText(buffered)
-                            }
-                        }
+                        self.activateIfNeededThenPaste(targetApp: capturedTargetApp,
+                                                       cursorOffset: capturedOffset,
+                                                       savedClipboard: capturedClipboard,
+                                                       buffered: buffered)
                     }
                 }
                 return
@@ -741,6 +748,57 @@ class ExpansionEngine: @unchecked Sendable {
         // 5. Write plain text as fallback
         pasteboard.setString(processedAttributedString.string, forType: .string)
         print("   ✓ Wrote plain text to pasteboard")
+    }
+
+    /// Called at the end of every async rephrase task. If the user switched away
+    /// from the app that triggered the expansion, we activate it first and wait
+    /// briefly for it to take focus before posting the paste. The rephraseBuffer
+    /// chars are discarded on an app-switch because they were typed in a different
+    /// app and have already been suppressed from the event stream there.
+    private func activateIfNeededThenPaste(
+        targetApp: NSRunningApplication?,
+        cursorOffset: Int?,
+        savedClipboard: String?,
+        buffered: String
+    ) {
+        let currentApp = NSWorkspace.shared.frontmostApplication
+        let currentBundleID = currentApp?.bundleIdentifier
+        let targetBundleID = targetApp?.bundleIdentifier
+        let isSameApp = targetBundleID == nil || currentBundleID == targetBundleID
+        print("↩️ activateIfNeededThenPaste: current=\(currentApp?.localizedName ?? "nil") target=\(targetApp?.localizedName ?? "nil") isSameApp=\(isSameApp)")
+
+        if isSameApp {
+            performPaste(cursorOffset: cursorOffset, savedClipboard: savedClipboard)
+            isEnabled = true
+            if !buffered.isEmpty {
+                DispatchQueue.global(qos: .userInteractive).async {
+                    _ = self.typeText(buffered)
+                }
+            }
+        } else {
+            // User switched away — bring the original app back into focus, then paste.
+            // NSRunningApplication.activate() is silently ignored by macOS 14+ when
+            // another app is active, so we use AppleScript which bypasses that restriction.
+            // Discard the rephrase buffer: those keystrokes were typed in a different
+            // app and replaying them here would be incorrect.
+            let appName = targetApp?.localizedName ?? ""
+            print("↩️ Rephrase complete — switching back to \(appName) via AppleScript to paste")
+            DispatchQueue.global(qos: .userInitiated).async {
+                if !appName.isEmpty {
+                    let src = "tell application \"\(appName)\" to activate"
+                    let script = NSAppleScript(source: src)
+                    var err: NSDictionary?
+                    script?.executeAndReturnError(&err)
+                    if let err { print("⚠️ AppleScript activate error: \(err)") }
+                }
+                // Give the app one more tick to finish raising its window
+                Thread.sleep(forTimeInterval: 0.05)
+                DispatchQueue.main.async {
+                    self.performPaste(cursorOffset: cursorOffset, savedClipboard: savedClipboard)
+                    self.isEnabled = true
+                }
+            }
+        }
     }
 
     private func performPaste(cursorOffset: Int?, savedClipboard: String?) {
@@ -1785,6 +1843,19 @@ class ExpansionEngine: @unchecked Sendable {
         objc_setAssociatedObject(insertButton, &ExpansionEngine.insertButtonWrapperKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
         // Also store wrapper on cancel button so we can access observers
         objc_setAssociatedObject(cancelButton, &ExpansionEngine.cancelButtonPanelKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
+
+        // Re-enable the expansion engine if the panel is closed by any means
+        // (title-bar ❌, Cmd+W, etc.) rather than our Cancel/Insert buttons.
+        // The Insert/Cancel paths already call isEnabled = true; the observer
+        // guards against double-setting, which is harmless.
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isEnabled = true
+        }
+        wrapper.observers.append(closeObserver)
 
         // Activate Xpanda and show the panel first
         NSApp.activate(ignoringOtherApps: true)

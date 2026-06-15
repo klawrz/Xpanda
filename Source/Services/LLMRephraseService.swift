@@ -6,6 +6,8 @@ class LLMRephraseService {
 
     private static let defaultSystemPrompt = "Rephrase the following text into a fresh version. Rules: (1) Preserve the grammatical person, voice, and tone of the original exactly — do not switch from second person to first person, or from active to passive, or change the formality level. (2) Preserve every factual claim and commitment — do not drop or weaken anything. (3) Match the word count closely — stay within 3 words of the original length. (4) Vary the wording and sentence structure so it does not sound like the previous versions. (5) Use only commas, periods, and apostrophes — no dashes of any kind. Return only the rephrased text with no explanation."
 
+    private static let linkTokenInstruction = " (6) The text contains hyperlink placeholders in the format [LINK_0], [LINK_1], etc. Treat each placeholder as a single unbreakable word. Preserve them exactly as written — do not rephrase, split, remove, or reorder them."
+
     private static let historyKey = "llm-rephrase-history"
     private static let maxHistoryPerXP = 3
 
@@ -48,8 +50,11 @@ class LLMRephraseService {
 
     // MARK: - System Prompt
 
-    private func effectiveSystemPrompt(for xpId: UUID?) -> String {
+    private func effectiveSystemPrompt(for xpId: UUID?, hasLinks: Bool = false) -> String {
         var prompt = Self.defaultSystemPrompt
+        if hasLinks {
+            prompt += Self.linkTokenInstruction
+        }
         if let xpId {
             let recent = recentRephrases(for: xpId)
             if !recent.isEmpty {
@@ -72,104 +77,99 @@ class LLMRephraseService {
         return result
     }
 
-    // MARK: - Rich Text Rephrase (Format-Preserving)
+    // MARK: - Rich Text Rephrase (Link-Preserving)
 
     func rephraseAttributedString(_ attrStr: NSAttributedString, xpId: UUID? = nil) async throws -> NSAttributedString {
-        // Extract segments: text runs and attachments
-        struct Segment {
-            let text: String
+
+        // Collect every linked run in document order, assigning a token to each.
+        struct LinkToken {
+            let token: String          // e.g. "[LINK_0]"
+            let originalText: String   // the visible label, preserved verbatim
             let attributes: [NSAttributedString.Key: Any]
-            let range: NSRange
-            let isAttachment: Bool
         }
 
-        var segments: [Segment] = []
-        attrStr.enumerateAttributes(in: NSRange(location: 0, length: attrStr.length), options: []) { attrs, range, _ in
-            let isAttachment = attrs[.attachment] != nil
+        var linkTokens: [LinkToken] = []
+        attrStr.enumerateAttribute(.link, in: NSRange(location: 0, length: attrStr.length), options: []) { value, range, _ in
+            guard value != nil else { return }
             let text = (attrStr.string as NSString).substring(with: range)
-            segments.append(Segment(text: text, attributes: attrs, range: range, isAttachment: isAttachment))
+            let attrs = attrStr.attributes(at: range.location, effectiveRange: nil)
+            linkTokens.append(LinkToken(token: "[LINK_\(linkTokens.count)]",
+                                        originalText: text,
+                                        attributes: attrs))
         }
 
-        // Build plain text from non-attachment segments
-        let textSegments = segments.filter { !$0.isAttachment }
-        let plainText = textSegments.map { $0.text }.joined()
-
-        guard !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return attrStr
-        }
-
-        // Send to LLM
-        let rephrasedText = try await rephrasePlainText(plainText, xpId: xpId)
-
-        // Re-apply formatting using proportional mapping
-        let totalOriginalLength = textSegments.reduce(0) { $0 + $1.text.count }
-        let result = NSMutableAttributedString()
-        var rephrasedIndex = rephrasedText.startIndex
-
-        for segment in segments {
-            if segment.isAttachment {
-                // Preserve attachments at their original positions
-                let attachmentStr = attrStr.attributedSubstring(from: segment.range)
-                result.append(attachmentStr)
-            } else {
-                // Find which text segment index this is among text-only segments
-                let textSegmentIndex = textSegments.firstIndex(where: { $0.range == segment.range })!
-                let isLastTextSegment = textSegmentIndex == textSegments.count - 1
-
-                if isLastTextSegment {
-                    // Last text segment gets whatever remains
-                    let remaining = String(rephrasedText[rephrasedIndex...])
-                    var cleanAttrs = segment.attributes
-                    cleanAttrs.removeValue(forKey: .attachment)
-                    result.append(NSAttributedString(string: remaining, attributes: cleanAttrs))
-                    rephrasedIndex = rephrasedText.endIndex
-                } else {
-                    // Proportional chunk — snap to word boundary so we never split a
-                    // word across two attribute runs (e.g. a hyperlink). Walk backward
-                    // from rawEnd to the start of the current word; that word then belongs
-                    // to the NEXT segment (the hyperlink), keeping plain text clean.
-                    let proportion = totalOriginalLength > 0 ? Double(segment.text.count) / Double(totalOriginalLength) : 0
-                    let rawLength = max(1, Int(round(proportion * Double(rephrasedText.count))))
-                    let rawEnd = rephrasedText.index(rephrasedIndex, offsetBy: rawLength, limitedBy: rephrasedText.endIndex) ?? rephrasedText.endIndex
-
-                    var wordEnd = rawEnd
-                    if wordEnd < rephrasedText.endIndex && rephrasedText[wordEnd] != " " {
-                        // rawEnd is mid-word. Walk BACKWARD to the start of this word
-                        // (right after the preceding space) so the word belongs to the
-                        // NEXT attribute run (e.g. hyperlink), not this plain-text chunk.
-                        // This avoids the forward-search problem where rawEnd lands in
-                        // the last word (no trailing space) and eats the whole remainder.
-                        var bwd = wordEnd
-                        while bwd > rephrasedIndex {
-                            let prev = rephrasedText.index(before: bwd)
-                            if rephrasedText[prev] == " " { break }
-                            bwd = prev
-                        }
-                        if bwd > rephrasedIndex {
-                            // Cut right before this word; the space stays in this chunk
-                            wordEnd = bwd
-                        }
-                        // If bwd == rephrasedIndex, no preceding space — keep rawEnd
-                    }
-                    let endIndex = wordEnd
-                    let chunk = String(rephrasedText[rephrasedIndex..<endIndex])
-
-                    var cleanAttrs = segment.attributes
-                    cleanAttrs.removeValue(forKey: .attachment)
-                    result.append(NSAttributedString(string: chunk, attributes: cleanAttrs))
-                    rephrasedIndex = endIndex
-                }
+        // Determine base attributes from the first non-link, non-attachment run so
+        // that surrounding rephrased text inherits the correct font/colour.
+        var baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor
+        ]
+        attrStr.enumerateAttributes(in: NSRange(location: 0, length: attrStr.length), options: []) { attrs, _, stop in
+            if attrs[.link] == nil && attrs[.attachment] == nil {
+                var clean = attrs
+                clean.removeValue(forKey: .attachment)
+                baseAttributes = clean
+                stop.pointee = true
             }
         }
 
-        // Append any excess rephrased text with default formatting
-        if rephrasedIndex < rephrasedText.endIndex {
-            let excess = String(rephrasedText[rephrasedIndex...])
-            let defaultAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 13),
-                .foregroundColor: NSColor.labelColor
-            ]
-            result.append(NSAttributedString(string: excess, attributes: defaultAttrs))
+        // Build the tokenized plain string sent to the LLM:
+        // replace each linked run with its placeholder in reverse index order
+        // so earlier character offsets are not disturbed.
+        var tokenized = attrStr.string
+
+        var linkedRanges: [(NSRange, String)] = []
+        var tokenIdx = 0
+        attrStr.enumerateAttribute(.link, in: NSRange(location: 0, length: attrStr.length), options: []) { value, range, _ in
+            guard value != nil else { return }
+            linkedRanges.append((range, "[LINK_\(tokenIdx)]"))
+            tokenIdx += 1
+        }
+        for (range, token) in linkedRanges.reversed() {
+            let s = tokenized.index(tokenized.startIndex, offsetBy: range.location)
+            let e = tokenized.index(s, offsetBy: range.length)
+            tokenized.replaceSubrange(s..<e, with: token)
+        }
+
+        // Strip attachment characters (U+FFFC) — images are not rephrased.
+        tokenized = tokenized.replacingOccurrences(of: "\u{FFFC}", with: "")
+
+        let plainForLLM = tokenized.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !plainForLLM.isEmpty else { return attrStr }
+
+        // Rephrase — pass the link-preservation rule when there are tokens.
+        let provider = BaesideProvider()
+        let systemPrompt = effectiveSystemPrompt(for: xpId, hasLinks: !linkTokens.isEmpty)
+        let rephrased = try await provider.rephrase(text: plainForLLM, systemPrompt: systemPrompt)
+        if let xpId { saveRephrase(rephrased, for: xpId) }
+
+        // Reconstruct the attributed string:
+        // walk through the rephrased text finding each token in order and
+        // replacing it with the original linked text + its original attributes.
+        let result = NSMutableAttributedString()
+        var pos = rephrased.startIndex
+
+        for linkToken in linkTokens {
+            guard let tokenRange = rephrased.range(of: linkToken.token, range: pos..<rephrased.endIndex) else {
+                // LLM dropped the token — skip it (link is lost, acceptable edge case).
+                continue
+            }
+            // Plain text before this token gets base formatting.
+            let before = String(rephrased[pos..<tokenRange.lowerBound])
+            if !before.isEmpty {
+                result.append(NSAttributedString(string: before, attributes: baseAttributes))
+            }
+            // Original linked text restored verbatim with its original attributes.
+            var linkAttrs = linkToken.attributes
+            linkAttrs.removeValue(forKey: .attachment)
+            result.append(NSAttributedString(string: linkToken.originalText, attributes: linkAttrs))
+            pos = tokenRange.upperBound
+        }
+
+        // Remaining plain text after the last token.
+        let tail = String(rephrased[pos...])
+        if !tail.isEmpty {
+            result.append(NSAttributedString(string: tail, attributes: baseAttributes))
         }
 
         return result
