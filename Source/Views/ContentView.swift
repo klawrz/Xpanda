@@ -472,6 +472,7 @@ struct AutocorrectDetailView: View {
             .padding()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.orange.opacity(0.08))
         .alert("Delete Autocorrect", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
