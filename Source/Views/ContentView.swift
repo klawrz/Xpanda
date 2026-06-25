@@ -9,7 +9,6 @@ struct ContentView: View {
     @State private var scrollToNewXP: UUID?
     @State private var showingDeleteConfirmation = false
     @State private var xpToDelete: XP?
-    @State private var showingAddAutocorrect = false
 
     var body: some View {
         GeometryReader { geo in
@@ -293,10 +292,7 @@ struct ContentView: View {
             ImportView()
                 .environmentObject(xpManager)
         }
-        .sheet(isPresented: $showingAddAutocorrect) {
-            AddEditAutocorrectView(mode: .add)
-                .environmentObject(xpManager)
-        }
+
         .alert("Delete XP", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 xpToDelete = nil
@@ -372,7 +368,17 @@ struct ContentView: View {
     }
 
     private func addNewAutocorrect() {
-        showingAddAutocorrect = true
+        let newXP = XP(
+            keyword: "",
+            expansion: "",
+            isRichText: false,
+            isAutocorrect: true,
+            tags: [],
+            folder: nil
+        )
+        xpManager.add(newXP)
+        selectedXP = newXP
+        scrollToNewXP = newXP.id
     }
 
     private func addNewXP(isVariable: Bool) {
@@ -403,6 +409,7 @@ struct AutocorrectDetailView: View {
     @State private var misspelling: String
     @State private var correction: String
     @State private var showingDeleteConfirmation = false
+    @State private var saveTask: Task<Void, Never>?
 
     init(xp: XP) {
         self.xp = xp
@@ -436,9 +443,14 @@ struct AutocorrectDetailView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     TextField("", text: $misspelling)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                         .onChange(of: misspelling) { newValue in
                             misspelling = newValue.replacingOccurrences(of: " ", with: "")
+                            debouncedSave()
                         }
                 }
                 VStack(alignment: .leading, spacing: 6) {
@@ -446,21 +458,16 @@ struct AutocorrectDetailView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     TextField("", text: $correction)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                         .onChange(of: correction) { newValue in
                             correction = newValue.replacingOccurrences(of: " ", with: "")
+                            debouncedSave()
                         }
                 }
-            }
-            .padding()
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("Save") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(misspelling.isEmpty || correction.isEmpty || (misspelling == xp.keyword && correction == xp.expansion))
             }
             .padding()
         }
@@ -475,7 +482,16 @@ struct AutocorrectDetailView: View {
         }
     }
 
-    private func save() {
+    private func debouncedSave() {
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { saveChanges() }
+        }
+    }
+
+    private func saveChanges() {
         var updated = xp
         updated.keyword = misspelling.trimmingCharacters(in: .whitespaces)
         updated.expansion = correction.trimmingCharacters(in: .whitespaces)

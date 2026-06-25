@@ -59,7 +59,11 @@ struct AddEditAutocorrectView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     TextField("", text: $misspelling)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                         .onChange(of: misspelling) { newValue in
                             misspelling = newValue.replacingOccurrences(of: " ", with: "")
                         }
@@ -69,7 +73,11 @@ struct AddEditAutocorrectView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     TextField("", text: $correction)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                         .onChange(of: correction) { newValue in
                             correction = newValue.replacingOccurrences(of: " ", with: "")
                         }

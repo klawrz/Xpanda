@@ -95,7 +95,6 @@ class ExpansionEngine: @unchecked Sendable {
         if type == .keyDown {
             let kc = event.getIntegerValueField(.keyboardEventKeycode)
             if kc == 9, let nse = NSEvent(cgEvent: event), nse.modifierFlags.contains(.command) {
-                print("⌨️ Cmd+V tap (isEnabled=\(isEnabled))")
             }
         }
 
@@ -402,28 +401,22 @@ class ExpansionEngine: @unchecked Sendable {
         let pasteboard = NSPasteboard.general
         let clipboardContent = pasteboard.string(forType: .string) ?? ""
 
-        print("⌨️ Typing expansion for XP: \(xp.keyword)")
-        print("   Clipboard content (read-only): \(clipboardContent)")
-        print("   Fill-in values: \(fillInValues)")
 
         var cursorOffset: Int? = nil
         var textToType: String = ""
 
         if xp.outputPlainText {
             // Process placeholder replacement for plain text
-            print("   → Using plain text output mode")
             let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: clipboardContent, fillInValues: fillInValues)
             cursorOffset = offset
             textToType = processedText
         } else if xp.isRichText, let attributedString = xp.attributedString {
             // Process placeholder replacement for rich text - convert to plain text
-            print("   → Using rich text mode (converting to plain text)")
             let (processedAttributedString, offset) = replacePlaceholders(in: attributedString, clipboardContent: clipboardContent, fillInValues: fillInValues)
             cursorOffset = offset
             textToType = processedAttributedString.string
         } else {
             // Process placeholder replacement for plain text
-            print("   → Using fallback plain text mode")
             let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: clipboardContent, fillInValues: fillInValues)
             cursorOffset = offset
             textToType = processedText
@@ -431,22 +424,16 @@ class ExpansionEngine: @unchecked Sendable {
 
         // Type the text and get timing
         let typingTime = typeText(textToType)
-        print("   Typed \(textToType.count) characters in \(typingTime) seconds")
 
         // Reposition cursor if needed
         if let offset = cursorOffset {
             let stepsBack = textToType.count - offset
 
-            print("🎯 Repositioning cursor:")
-            print("   Text length: \(textToType.count)")
-            print("   Cursor should be at: \(offset)")
-            print("   Steps back from end: \(stepsBack)")
 
             // Move cursor left by the calculated steps
             moveCursorLeft(steps: stepsBack)
         }
 
-        print("   ✓ Expansion typed (clipboard untouched)")
         return typingTime
     }
 
@@ -456,19 +443,10 @@ class ExpansionEngine: @unchecked Sendable {
         // Remember which app triggered the expansion so we can return focus to it
         // after an async rephrase completes, even if the user has switched away.
         let expansionTargetApp = NSWorkspace.shared.frontmostApplication
-        print("🎯 expansionTargetApp = \(expansionTargetApp?.localizedName ?? "nil") (\(expansionTargetApp?.bundleIdentifier ?? "nil"))")
 
         // Save current clipboard contents before we clear it
         let savedClipboardString = pasteboard.string(forType: .string)
 
-        print("\n════════════════════════════════════════")
-        print("📋 NEW EXPANSION: \(xp.keyword)")
-        print("════════════════════════════════════════")
-        print("   Saved clipboard: \(savedClipboardString ?? "nil")")
-        print("   XP.expansion plain text: \(xp.expansion)")
-        print("   XP.isRichText: \(xp.isRichText)")
-        print("   XP.outputPlainText: \(xp.outputPlainText)")
-        print("   Fill-in values: \(fillInValues)")
 
         pasteboard.clearContents()
 
@@ -476,7 +454,6 @@ class ExpansionEngine: @unchecked Sendable {
 
         if xp.outputPlainText {
             // Process placeholder replacement for plain text
-            print("   → Using plain text output mode")
             let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
 
@@ -500,7 +477,6 @@ class ExpansionEngine: @unchecked Sendable {
                     }
                     await MainActor.run {
                         RephraseHUD.shared.hide()
-                        print("✨ Pasting rephrased text: \(finalText)")
                         NSPasteboard.general.setString(finalText, forType: .string)
                         let buffered = self.rephraseBuffer
                         self.rephraseBuffer = ""
@@ -518,31 +494,24 @@ class ExpansionEngine: @unchecked Sendable {
             pasteboard.setString(processedText, forType: .string)
         } else if xp.isRichText, let attributedString = xp.attributedString {
             // Process placeholder replacement for rich text
-            print("   → Using rich text mode")
-            print("   Input attributed string length: \(attributedString.length)")
-            print("   Input string: \(attributedString.string)")
 
             // Check for images in the input
             var imageCount = 0
             attributedString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributedString.length), options: []) { value, range, _ in
                 if let attachment = value as? NSTextAttachment, attachment.image != nil {
                     imageCount += 1
-                    print("   📸 Input has image #\(imageCount) at range \(range), size: \(attachment.image?.size ?? .zero)")
                 }
             }
 
             let (processedAttributedString, offset) = replacePlaceholders(in: attributedString, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
 
-            print("   Processed attributed string length: \(processedAttributedString.length)")
-            print("   Processed string: \(processedAttributedString.string)")
 
             // Check for images in the processed output
             var processedImageCount = 0
             processedAttributedString.enumerateAttribute(.attachment, in: NSRange(location: 0, length: processedAttributedString.length), options: []) { value, range, _ in
                 if let attachment = value as? NSTextAttachment, attachment.image != nil {
                     processedImageCount += 1
-                    print("   📸 Processed has image #\(processedImageCount) at range \(range), size: \(attachment.image?.size ?? .zero)")
                 }
             }
 
@@ -568,7 +537,6 @@ class ExpansionEngine: @unchecked Sendable {
                     nonisolated(unsafe) let finalAttrStr = result
                     await MainActor.run {
                         RephraseHUD.shared.hide()
-                        print("✨ Pasting rephrased text: \(finalAttrStr.string)")
                         let pb = NSPasteboard.general
                         self.writeRichTextToPasteboard(finalAttrStr, pasteboard: pb)
                         let buffered = self.rephraseBuffer
@@ -587,7 +555,6 @@ class ExpansionEngine: @unchecked Sendable {
             writeRichTextToPasteboard(processedAttributedString, pasteboard: pasteboard)
         } else {
             // Process placeholder replacement for plain text
-            print("   → Using fallback plain text mode")
             let (processedText, offset) = replacePlaceholders(in: xp.expansion, clipboardContent: savedClipboardString ?? "", fillInValues: fillInValues)
             cursorOffset = offset
 
@@ -611,7 +578,6 @@ class ExpansionEngine: @unchecked Sendable {
                     }
                     await MainActor.run {
                         RephraseHUD.shared.hide()
-                        print("✨ Pasting rephrased text: \(finalText)")
                         NSPasteboard.general.setString(finalText, forType: .string)
                         let buffered = self.rephraseBuffer
                         self.rephraseBuffer = ""
@@ -659,7 +625,6 @@ class ExpansionEngine: @unchecked Sendable {
                 let base64String = pngData.base64EncodedString()
                 let imageHtml = "<img src=\"data:image/png;base64,\(base64String)\" width=\"\(Int(image.size.width))\" height=\"\(Int(image.size.height))\" />"
                 htmlParts.append((index: range.location, html: imageHtml))
-                print("   ✓ Created base64 embedded image (\(pngData.count) bytes)")
             }
         }
 
@@ -711,7 +676,6 @@ class ExpansionEngine: @unchecked Sendable {
 
             if let htmlData = htmlString.data(using: .utf8) {
                 pasteboard.setData(htmlData, forType: .html)
-                print("   ✓ Wrote HTML with embedded images and text to pasteboard (\(htmlData.count) bytes)")
             }
         } else {
             // Fall back to default HTML conversion for text-only content
@@ -723,7 +687,6 @@ class ExpansionEngine: @unchecked Sendable {
                 ]
             ) {
                 pasteboard.setData(htmlData, forType: .html)
-                print("   ✓ Wrote HTML data to pasteboard (\(htmlData.count) bytes)")
             }
         }
 
@@ -733,7 +696,6 @@ class ExpansionEngine: @unchecked Sendable {
             documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
         ) {
             pasteboard.setData(rtfdData, forType: .rtfd)
-            print("   ✓ Wrote RTFD data to pasteboard (\(rtfdData.count) bytes)")
         }
 
         // 4. Write RTF for apps that don't support images
@@ -742,12 +704,10 @@ class ExpansionEngine: @unchecked Sendable {
             documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
         ) {
             pasteboard.setData(rtfData, forType: .rtf)
-            print("   ✓ Wrote RTF data to pasteboard (\(rtfData.count) bytes)")
         }
 
         // 5. Write plain text as fallback
         pasteboard.setString(processedAttributedString.string, forType: .string)
-        print("   ✓ Wrote plain text to pasteboard")
     }
 
     /// Called at the end of every async rephrase task. If the user switched away
@@ -765,7 +725,6 @@ class ExpansionEngine: @unchecked Sendable {
         let currentBundleID = currentApp?.bundleIdentifier
         let targetBundleID = targetApp?.bundleIdentifier
         let isSameApp = targetBundleID == nil || currentBundleID == targetBundleID
-        print("↩️ activateIfNeededThenPaste: current=\(currentApp?.localizedName ?? "nil") target=\(targetApp?.localizedName ?? "nil") isSameApp=\(isSameApp)")
 
         if isSameApp {
             performPaste(cursorOffset: cursorOffset, savedClipboard: savedClipboard)
@@ -802,7 +761,6 @@ class ExpansionEngine: @unchecked Sendable {
     }
 
     private func performPaste(cursorOffset: Int?, savedClipboard: String?) {
-        print("🔵 performPaste called (isMainThread=\(Thread.isMainThread))")
         let pasteboard = NSPasteboard.general
 
         // Private source: events are isolated from the real session modifier state,
@@ -832,10 +790,6 @@ class ExpansionEngine: @unchecked Sendable {
                 let textLength = pastedString.count
                 let stepsBack = textLength - offset
 
-                print("🎯 Repositioning cursor:")
-                print("   Text length: \(textLength)")
-                print("   Cursor should be at: \(offset)")
-                print("   Steps back from end: \(stepsBack)")
 
                 // Move cursor left by the calculated steps
                 moveCursorLeft(steps: stepsBack)
@@ -850,11 +804,9 @@ class ExpansionEngine: @unchecked Sendable {
         let work = DispatchWorkItem {
             let pasteboard = NSPasteboard.general
             if let savedClipboard = savedClipboardString {
-                print("📋 Restoring clipboard: \(savedClipboard.prefix(40))")
                 pasteboard.clearContents()
                 pasteboard.setString(savedClipboard, forType: .string)
             } else {
-                print("📋 Clearing clipboard (was empty before expansion)")
                 pasteboard.clearContents()
             }
         }
@@ -876,7 +828,6 @@ class ExpansionEngine: @unchecked Sendable {
             }
         }
 
-        print("   ✓ Moved cursor \(steps) positions to the left")
     }
 
     private func checkAccessibilityPermissions() -> Bool {
@@ -914,7 +865,6 @@ class ExpansionEngine: @unchecked Sendable {
 
             // Look up the variable
             if let variable = XPManager.shared.findVariable(byKeyword: fullKeyword) {
-                print("✓ Found variable: \(fullKeyword)")
 
                 // Add to visited set for circular reference detection
                 var newVisited = visited
@@ -951,8 +901,6 @@ class ExpansionEngine: @unchecked Sendable {
         var result = text
         var cursorOffset: Int? = nil
 
-        print("🔍 Processing plain text for placeholder replacement")
-        print("   Text: \(text)")
 
         // First, expand any variables
         result = expandVariables(in: result)
@@ -960,7 +908,6 @@ class ExpansionEngine: @unchecked Sendable {
         // Find cursor position before removing it
         if let cursorRange = result.range(of: PlaceholderToken.cursor.storageText) {
             cursorOffset = result.distance(from: result.startIndex, to: cursorRange.lowerBound)
-            print("   Found cursor at offset: \(cursorOffset!)")
         }
 
         // Remove {{cursor}} placeholder
@@ -1102,8 +1049,6 @@ class ExpansionEngine: @unchecked Sendable {
             }
         }
 
-        print("   Result: \(result)")
-        print("   Cursor offset: \(cursorOffset?.description ?? "none")")
 
         return (result, cursorOffset)
     }
@@ -1139,7 +1084,6 @@ class ExpansionEngine: @unchecked Sendable {
 
                 // Look up the variable
                 if let variable = XPManager.shared.findVariable(byKeyword: keyword) {
-                    print("✓ Found variable: \(keyword)")
 
                     // Add to visited set for circular reference detection
                     var newVisited = visited
@@ -1183,9 +1127,6 @@ class ExpansionEngine: @unchecked Sendable {
         let fullRange = NSRange(location: 0, length: mutableString.length)
         var cursorOffset: Int? = nil
 
-        print("🔍 Processing attributed string for clipboard and cursor replacement")
-        print("   String: \(mutableString.string)")
-        print("   Length: \(mutableString.length)")
 
         // First, find and process placeholder attachments (they appear as U+FFFC character)
         var indicesToReplace: [(range: NSRange, attributes: [NSAttributedString.Key: Any], replacementText: String)] = []
@@ -1194,8 +1135,6 @@ class ExpansionEngine: @unchecked Sendable {
             if let attachment = value as? NSTextAttachment {
                 // Check if it's an image attachment (has image property set)
                 if attachment.image != nil {
-                    print("   ✓ Found image attachment at range: \(range)")
-                    print("     → Preserving image in expansion")
                     // Don't add to indicesToReplace - images should be preserved as-is
                     return
                 }
@@ -1211,10 +1150,8 @@ class ExpansionEngine: @unchecked Sendable {
                         // Handle date/time attachments
                         if type == "date" || type == "time" {
                             if let format = json["format"] as? String {
-                                print("   ✓ Found \(type) attachment at range: \(range) with format: \(format)")
 
                                 let formattedDate = self.formatDate(with: format)
-                                print("     → Replacing with formatted \(type): \(formattedDate)")
 
                                 // Inherit attributes from surrounding text
                                 var attributes: [NSAttributedString.Key: Any] = [:]
@@ -1229,10 +1166,8 @@ class ExpansionEngine: @unchecked Sendable {
                         // Handle fill-in attachments
                         else if (type == "fillin_single" || type == "fillin_multi" || type == "fillin_select"),
                                 let label = json["label"] as? String {
-                            print("   ✓ Found \(type) attachment at range: \(range) with label: \(label)")
 
                             let replacementText = fillInValues[label] ?? ""
-                            print("     → Replacing with value: \(replacementText)")
 
                             // Inherit attributes from the character just before (or after) the
                             // token so the substituted value blends with surrounding text.
@@ -1249,18 +1184,15 @@ class ExpansionEngine: @unchecked Sendable {
                     }
                     // Check if it's a placeholder token (plain text)
                     else if let storageText = String(data: data, encoding: .utf8) {
-                        print("   ✓ Found attachment at range: \(range) with text: \(storageText)")
 
                         // Determine replacement based on placeholder type
                         var replacementText = ""
                         if storageText == PlaceholderToken.clipboard.storageText {
                             replacementText = clipboardContent
-                            print("     → Clipboard placeholder, replacing with clipboard content")
                         } else if storageText == PlaceholderToken.cursor.storageText {
                             replacementText = "" // Remove cursor placeholder
                             if cursorOffset == nil {
                                 cursorOffset = range.location
-                                print("     → Cursor placeholder found at offset: \(range.location)")
                             }
                         }
 
@@ -1273,7 +1205,6 @@ class ExpansionEngine: @unchecked Sendable {
             }
         }
 
-        print("   Found \(indicesToReplace.count) placeholder attachments")
 
         // Replace attachments in reverse order to maintain correct ranges
         // Track cursor offset adjustments
@@ -1282,12 +1213,10 @@ class ExpansionEngine: @unchecked Sendable {
             if let offset = cursorOffset, item.range.location < offset {
                 let lengthDiff = item.replacementText.count - item.range.length
                 cursorOffset = offset + lengthDiff
-                print("   ✓ Adjusting cursor offset by \(lengthDiff) to \(cursorOffset!)")
             }
 
             let replacement = NSAttributedString(string: item.replacementText, attributes: item.attributes)
             mutableString.replaceCharacters(in: item.range, with: replacement)
-            print("   ✓ Replaced attachment with: \"\(item.replacementText)\"")
         }
 
         // Replace clipboard-dynamic link URLs with actual clipboard content
@@ -1296,11 +1225,9 @@ class ExpansionEngine: @unchecked Sendable {
             if let url = value as? URL, url.absoluteString == clipboardMarkerURL {
                 if let clipboardURL = URL(string: clipboardContent) {
                     mutableString.addAttribute(.link, value: clipboardURL, range: range)
-                    print("   \u{2713} Replaced clipboard link URL with: \(clipboardContent)")
                 } else {
                     // If clipboard content isn't a valid URL, use it as-is
                     mutableString.addAttribute(.link, value: clipboardContent, range: range)
-                    print("   \u{2713} Replaced clipboard link with raw text: \(clipboardContent)")
                 }
             }
         }
@@ -1320,13 +1247,11 @@ class ExpansionEngine: @unchecked Sendable {
                     if let attachment = attributes[.attachment] as? NSTextAttachment {
                         // Check if it's an image attachment - preserve it
                         if attachment.image != nil {
-                            print("   ℹ️ Skipping U+FFFC at index \(index) - has valid image attachment")
                             continue
                         }
                     }
                 }
 
-                print("   ✓ Found U+FFFC character at index: \(index) without valid attachment")
 
                 // Get attributes at this location
                 var attributes: [NSAttributedString.Key: Any] = [:]
@@ -1344,12 +1269,10 @@ class ExpansionEngine: @unchecked Sendable {
             if let offset = cursorOffset, item.range.location < offset {
                 let lengthDiff = clipboardContent.count - item.range.length
                 cursorOffset = offset + lengthDiff
-                print("   ✓ Adjusting cursor offset by \(lengthDiff) to \(cursorOffset!)")
             }
 
             let replacement = NSAttributedString(string: clipboardContent, attributes: item.attributes)
             mutableString.replaceCharacters(in: item.range, with: replacement)
-            print("   ✓ Replaced U+FFFC with: \(clipboardContent)")
         }
 
         // Find and replace {{clipboard}} text placeholders
@@ -1363,13 +1286,11 @@ class ExpansionEngine: @unchecked Sendable {
                 break
             }
 
-            print("   ✓ Found \(pattern) at range: \(foundRange)")
 
             // Adjust cursor offset if this replacement is before the cursor
             if let offset = cursorOffset, foundRange.location < offset {
                 let lengthDiff = clipboardContent.count - foundRange.length
                 cursorOffset = offset + lengthDiff
-                print("   ✓ Adjusting cursor offset by \(lengthDiff) to \(cursorOffset!)")
             }
 
             // Get the attributes at this location (to preserve formatting around the placeholder)
@@ -1385,7 +1306,6 @@ class ExpansionEngine: @unchecked Sendable {
             let replacement = NSAttributedString(string: clipboardContent, attributes: attributes)
             mutableString.replaceCharacters(in: foundRange, with: replacement)
 
-            print("   ✓ Replaced with: \(clipboardContent)")
 
             // Update search range
             searchRange.location = foundRange.location + clipboardContent.count
@@ -1403,12 +1323,10 @@ class ExpansionEngine: @unchecked Sendable {
                 break
             }
 
-            print("   ✓ Found \(cursorPattern) at range: \(foundRange)")
 
             // Track cursor position if not already found
             if cursorOffset == nil {
                 cursorOffset = foundRange.location
-                print("   ✓ Cursor position tracked at offset: \(foundRange.location)")
             }
 
             // Get the attributes at this location (to preserve formatting)
@@ -1421,14 +1339,12 @@ class ExpansionEngine: @unchecked Sendable {
             let replacement = NSAttributedString(string: "", attributes: attributes)
             mutableString.replaceCharacters(in: foundRange, with: replacement)
 
-            print("   ✓ Removed cursor placeholder")
 
             // Update search range (since we removed text, location stays the same)
             cursorSearchRange.location = foundRange.location
             cursorSearchRange.length = mutableString.length - cursorSearchRange.location
         }
 
-        print("   Final cursor offset: \(cursorOffset?.description ?? "none")")
         return (mutableString, cursorOffset)
     }
 
@@ -1550,7 +1466,6 @@ class ExpansionEngine: @unchecked Sendable {
     }
 
     private func showFillInDialog(for xp: XP, fields: [FillInField], proxy: CGEventTapProxy) {
-        print("🎯 Showing fill-in dialog for \(fields.count) fields")
 
         // Get the expansion text
         let expansionText: String
@@ -1584,7 +1499,6 @@ class ExpansionEngine: @unchecked Sendable {
             expansionText = xp.expansion
         }
 
-        print("   Expansion text: \(expansionText)")
 
         // Create a panel
         let panel = NSPanel(
@@ -1711,7 +1625,6 @@ class ExpansionEngine: @unchecked Sendable {
 
         yOffset += 8
 
-        print("   Created \(inputControls.count) input controls (\(inputControls.filter { $0.isMultiLine }.count) multi-line)")
 
         // Function to update preview
         let updatePreview = {
@@ -1875,7 +1788,6 @@ class ExpansionEngine: @unchecked Sendable {
             panel.makeFirstResponder(firstControl)
         }
 
-        print("   Showing fill-in dialog...")
     }
 
     @objc private func popupButtonChanged(_ sender: NSPopUpButton) {
@@ -1887,11 +1799,9 @@ class ExpansionEngine: @unchecked Sendable {
 
     @objc private func handleFillInCancel(_ sender: NSButton) {
         guard let wrapper = objc_getAssociatedObject(sender, &ExpansionEngine.cancelButtonPanelKey) as? FillInDataWrapper else {
-            print("   ❌ Failed to get wrapper")
             return
         }
 
-        print("   User cancelled")
 
         // Remove all NotificationCenter observers using stored tokens
         for observer in wrapper.observers {
@@ -1932,7 +1842,6 @@ class ExpansionEngine: @unchecked Sendable {
 
     @objc private func handleFillInInsert(_ sender: NSButton) {
         guard let wrapper = objc_getAssociatedObject(sender, &ExpansionEngine.insertButtonWrapperKey) as? FillInDataWrapper else {
-            print("   ❌ Failed to get wrapper")
             return
         }
 
@@ -1948,7 +1857,6 @@ class ExpansionEngine: @unchecked Sendable {
             }
         }
 
-        print("   Collected values: \(fillInValues)")
 
         // Remove all NotificationCenter observers using stored tokens
         for observer in wrapper.observers {
