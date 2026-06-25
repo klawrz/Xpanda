@@ -27,7 +27,7 @@ class RephraseHUD {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.contentView = HUDView(frame: NSRect(x: 0, y: 0, width: width, height: height))
 
-        let anchor = caretPosition() ?? NSEvent.mouseLocation
+        let anchor = NSEvent.mouseLocation
         var origin = NSPoint(x: anchor.x, y: anchor.y - height - 6)
         if let screen = NSScreen.screens.first(where: { $0.frame.contains(anchor) }) ?? NSScreen.main {
             origin.x = min(max(origin.x, screen.visibleFrame.minX + 8), screen.visibleFrame.maxX - width - 8)
@@ -43,77 +43,6 @@ class RephraseHUD {
         panel = nil
     }
 
-    // MARK: - Caret position via Accessibility API
-
-    private func caretPosition() -> NSPoint? {
-        let systemWide = AXUIElementCreateSystemWide()
-
-        var focusedRaw: AnyObject?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRaw) == .success,
-              let focused = focusedRaw else { return nil }
-        let focusedEl = focused as! AXUIElement
-
-        // Try to get the precise caret rect via the selected-text-range path.
-        if let point = caretPointFromRange(focusedEl) { return point }
-
-        // Fallback: use the focused element's own frame. This handles web content
-        // (Chrome, Electron) where kAXBoundsForRangeParameterizedAttribute returns
-        // zero or garbage. Positions the HUD at the top-left of the text field.
-        return elementFramePoint(focusedEl)
-    }
-
-    private func caretPointFromRange(_ element: AXUIElement) -> NSPoint? {
-        var rangeRaw: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRaw) == .success,
-              let rangeVal = rangeRaw,
-              CFGetTypeID(rangeVal as CFTypeRef) == AXValueGetTypeID() else { return nil }
-        let rangeAXVal = rangeVal as! AXValue
-
-        var boundsRaw: AnyObject?
-        guard AXUIElementCopyParameterizedAttributeValue(
-            element,
-            kAXBoundsForRangeParameterizedAttribute as CFString,
-            rangeAXVal,
-            &boundsRaw
-        ) == .success,
-              let boundsVal = boundsRaw,
-              CFGetTypeID(boundsVal as CFTypeRef) == AXValueGetTypeID() else { return nil }
-        let boundsAXVal = boundsVal as! AXValue
-
-        var rect = CGRect.zero
-        guard AXValueGetValue(boundsAXVal, .cgRect, &rect) else { return nil }
-        guard rect.width > 0 || rect.height > 0 else { return nil }
-
-        guard NSScreen.main != nil else { return nil }
-        let point = NSPoint(x: rect.minX, y: NSScreen.screens[0].frame.height - rect.maxY)
-        guard NSScreen.screens.contains(where: { $0.frame.contains(point) }) else { return nil }
-        return point
-    }
-
-    /// Returns the top-left corner of the focused element's frame (Quartz → AppKit flipped).
-    /// Used as a fallback when the precise caret rect is unavailable (e.g. Chrome web views).
-    private func elementFramePoint(_ element: AXUIElement) -> NSPoint? {
-        var posRaw: AnyObject?
-        var sizeRaw: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRaw) == .success,
-              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRaw) == .success,
-              let posVal = posRaw, let sizeVal = sizeRaw,
-              CFGetTypeID(posVal as CFTypeRef) == AXValueGetTypeID(),
-              CFGetTypeID(sizeVal as CFTypeRef) == AXValueGetTypeID() else { return nil }
-
-        var pos = CGPoint.zero
-        var size = CGSize.zero
-        guard AXValueGetValue(posVal as! AXValue, .cgPoint, &pos),
-              AXValueGetValue(sizeVal as! AXValue, .cgSize, &size) else { return nil }
-
-        // kAXPositionAttribute is in Quartz coordinates (top-left origin).
-        // Flip Y and nudge to the bottom of the element so the HUD appears just below.
-        guard NSScreen.main != nil else { return nil }
-        let screenHeight = NSScreen.screens[0].frame.height
-        let point = NSPoint(x: pos.x, y: screenHeight - pos.y - size.height)
-        guard NSScreen.screens.contains(where: { $0.frame.contains(point) }) else { return nil }
-        return point
-    }
 }
 
 // MARK: - HUD View

@@ -464,7 +464,7 @@ class ExpansionEngine: @unchecked Sendable {
                 let capturedTargetApp = expansionTargetApp
                 self.isInRephraseTask = true
                 self.rephraseBuffer = ""
-                MainActor.assumeIsolated { RephraseHUD.shared.show() }
+                DispatchQueue.main.async { RephraseHUD.shared.show() }
                 Task {
                     let finalText: String
                     do {
@@ -523,7 +523,7 @@ class ExpansionEngine: @unchecked Sendable {
                 let capturedTargetApp = expansionTargetApp
                 self.isInRephraseTask = true
                 self.rephraseBuffer = ""
-                MainActor.assumeIsolated { RephraseHUD.shared.show() }
+                DispatchQueue.main.async { RephraseHUD.shared.show() }
                 Task {
                     let result: NSAttributedString
                     do {
@@ -565,7 +565,7 @@ class ExpansionEngine: @unchecked Sendable {
                 let capturedTargetApp = expansionTargetApp
                 self.isInRephraseTask = true
                 self.rephraseBuffer = ""
-                MainActor.assumeIsolated { RephraseHUD.shared.show() }
+                DispatchQueue.main.async { RephraseHUD.shared.show() }
                 Task {
                     let finalText: String
                     do {
