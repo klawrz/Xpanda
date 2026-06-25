@@ -99,7 +99,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Configure RevenueCat
         Purchases.logLevel = .error
-        Purchases.configure(withAPIKey: "test_XnsQrMkFByTCBMEbTDhkyFcivJb")
+        Purchases.configure(withAPIKey: "appl_HNzqmacxpkvvhbdSTHvnQIUIqUI")
 
         UNUserNotificationCenter.current().delegate = self
 

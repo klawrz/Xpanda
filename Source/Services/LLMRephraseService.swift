@@ -41,11 +41,7 @@ class LLMRephraseService {
     /// True when the user is signed in and has AI access.
     /// TODO: also check RevenueCat ai_access entitlement once RevenueCat is integrated.
     var isConfigured: Bool {
-        #if DEBUG
-        return true
-        #else
         return AuthManager.cachedHasAIAccess
-        #endif
     }
 
     // MARK: - System Prompt

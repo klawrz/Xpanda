@@ -248,7 +248,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				BF14B0CB2ED2827300C4BF8D /* Assets.xcassets in Resources */,
-				BF14B0CC2ED2827300C4BF8D /* Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -421,7 +420,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = H79JZF5RUX;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Source/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Xpanda;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -450,7 +450,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = H79JZF5RUX;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Source/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Xpanda;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (

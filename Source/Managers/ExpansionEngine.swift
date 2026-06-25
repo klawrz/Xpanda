@@ -740,22 +740,31 @@ class ExpansionEngine: @unchecked Sendable {
             // another app is active, so we use AppleScript which bypasses that restriction.
             // Discard the rephrase buffer: those keystrokes were typed in a different
             // app and replaying them here would be incorrect.
-            let appName = targetApp?.localizedName ?? ""
-            print("↩️ Rephrase complete — switching back to \(appName) via AppleScript to paste")
-            DispatchQueue.global(qos: .userInitiated).async {
-                if !appName.isEmpty {
-                    let src = "tell application \"\(appName)\" to activate"
-                    let script = NSAppleScript(source: src)
-                    var err: NSDictionary?
-                    script?.executeAndReturnError(&err)
-                    if let err { print("⚠️ AppleScript activate error: \(err)") }
-                }
-                // Give the app one more tick to finish raising its window
-                Thread.sleep(forTimeInterval: 0.05)
-                DispatchQueue.main.async {
-                    self.performPaste(cursorOffset: cursorOffset, savedClipboard: savedClipboard)
-                    self.isEnabled = true
-                }
+            print("↩️ Rephrase complete — switching back to \(targetApp?.localizedName ?? "original app") to paste")
+            targetApp?.activate(options: [.activateIgnoringOtherApps])
+            waitForAppFocusThenPaste(targetApp: targetApp, cursorOffset: cursorOffset,
+                                     savedClipboard: savedClipboard, attempt: 0)
+        }
+    }
+
+    private func waitForAppFocusThenPaste(
+        targetApp: NSRunningApplication?,
+        cursorOffset: Int?,
+        savedClipboard: String?,
+        attempt: Int
+    ) {
+        let maxAttempts = 25  // 25 × 20ms = 500ms
+        let currentApp = NSWorkspace.shared.frontmostApplication
+        if currentApp?.bundleIdentifier == targetApp?.bundleIdentifier || attempt >= maxAttempts {
+            if attempt >= maxAttempts {
+                print("⚠️ Target app never took focus after 500ms — pasting anyway")
+            }
+            performPaste(cursorOffset: cursorOffset, savedClipboard: savedClipboard)
+            isEnabled = true
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                self.waitForAppFocusThenPaste(targetApp: targetApp, cursorOffset: cursorOffset,
+                                              savedClipboard: savedClipboard, attempt: attempt + 1)
             }
         }
     }
