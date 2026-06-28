@@ -140,7 +140,7 @@ class AuthManager: NSObject, ObservableObject {
 
         do {
             let customerInfo = try await Purchases.shared.customerInfo()
-            let active = customerInfo.entitlements["support_safari_pro"]?.isActive == true
+            let active = customerInfo.entitlements["xpanda"]?.isActive == true
             if active {
                 hasAIAccess  = true
                 isSubscribed = true
@@ -168,7 +168,7 @@ class AuthManager: NSObject, ObservableObject {
                 .from("user_entitlements")
                 .select("status")
                 .eq("user_id", value: uid)
-                .eq("entitlement_id", value: "support_safari_pro")
+                .eq("entitlement_id", value: "xpanda")
                 .eq("status", value: "active")
                 .execute()
                 .value
@@ -186,7 +186,7 @@ class AuthManager: NSObject, ObservableObject {
     func restorePurchases() async {
         do {
             let customerInfo = try await Purchases.shared.restorePurchases()
-            let active = customerInfo.entitlements["support_safari_pro"]?.isActive == true
+            let active = customerInfo.entitlements["xpanda"]?.isActive == true
             hasAIAccess  = active
             isSubscribed = active
         } catch {
