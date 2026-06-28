@@ -103,7 +103,7 @@ struct PaywallView: View {
             do {
                 let result = try await Purchases.shared.purchase(package: package)
                 if !result.userCancelled {
-                    let active = result.customerInfo.entitlements["support_safari_pro"]?.isActive == true
+                    let active = result.customerInfo.entitlements["xpanda"]?.isActive == true
                     await MainActor.run {
                         authManager.hasAIAccess  = active
                         authManager.isSubscribed = active
