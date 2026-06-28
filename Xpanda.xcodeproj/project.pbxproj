@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */; };
 		049CFCAD91460C3CE70B18B6 /* RephraseHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3316C2E5991C44F6CF66CA /* RephraseHUD.swift */; };
+		BF14B0A22ED9999900C4BF8D /* AddEditAutocorrectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */; };
 		BF14B0A42ED9999900C4BF8D /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0A32ED9999900C4BF8D /* PaywallView.swift */; };
 		BF14B0A72ED9999900C4BF8D /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = BF14B0A62ED9999900C4BF8D /* RevenueCat */; };
 		BF14B0C12ED2827300C4BF8D /* XpandaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0BF2ED2827300C4BF8D /* XpandaApp.swift */; };
@@ -22,7 +22,6 @@
 		BF14B0C92ED2827300C4BF8D /* ConflictView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B62ED2827300C4BF8D /* ConflictView.swift */; };
 		BF14B0CA2ED2827300C4BF8D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0B92ED2827300C4BF8D /* SettingsView.swift */; };
 		BF14B0CB2ED2827300C4BF8D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BF14B0BC2ED2827300C4BF8D /* Assets.xcassets */; };
-		BF14B0CC2ED2827300C4BF8D /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = BF14B0BD2ED2827300C4BF8D /* Info.plist */; };
 		BF14B0CE2ED28B8400C4BF8D /* XPProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0CD2ED28B8400C4BF8D /* XPProgress.swift */; };
 		BF14B0D02ED28B9800C4BF8D /* ExperienceBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0CF2ED28B9800C4BF8D /* ExperienceBar.swift */; };
 		BF14B0D22ED384A300C4BF8D /* RichTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF14B0D12ED384A300C4BF8D /* RichTextEditor.swift */; };
@@ -43,7 +42,6 @@
 /* Begin PBXFileReference section */
 		BF14B0882ED245F400C4BF8D /* Xpanda.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Xpanda.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BF14B0A12ED9999900C4BF8D /* AddEditAutocorrectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddEditAutocorrectView.swift; sourceTree = "<group>"; };
-		CA3316C2E5991C44F6CF66CA /* RephraseHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RephraseHUD.swift; sourceTree = "<group>"; };
 		BF14B0A32ED9999900C4BF8D /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		BF14B0B02ED2827300C4BF8D /* ExpansionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpansionEngine.swift; sourceTree = "<group>"; };
 		BF14B0B12ED2827300C4BF8D /* XPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPManager.swift; sourceTree = "<group>"; };
@@ -71,6 +69,7 @@
 		BF14B1B12EE1000100C4BF8D /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
 		BF5A1111AAAABBBB00CC0001 /* TutorialCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialCard.swift; sourceTree = "<group>"; };
 		BF5A3333AAAABBBB00CC0001 /* TutorialManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialManager.swift; sourceTree = "<group>"; };
+		CA3316C2E5991C44F6CF66CA /* RephraseHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RephraseHUD.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -417,7 +416,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = H79JZF5RUX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -447,7 +446,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = H79JZF5RUX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
