@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       .from("user_entitlements")
       .select("status")
       .eq("user_id", user.id)
-      .eq("entitlement_id", "support_safari_pro")
+      .eq("entitlement_id", "xpanda")
       .eq("status", "active")
       .maybeSingle();
 
