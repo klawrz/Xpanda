@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import Darwin
 
 struct ImportView: View {
     @EnvironmentObject var xpManager: XPManager
@@ -17,6 +18,15 @@ struct ImportView: View {
         case replace
     }
 
+    var previousVersionURL: URL? {
+        // getpwuid bypasses the sandbox to give the real home directory,
+        // unlike NSHomeDirectory() which returns the container path.
+        guard let pw = getpwuid(getuid()), let homeCStr = pw.pointee.pw_dir else { return nil }
+        let url = URL(fileURLWithPath: String(cString: homeCStr))
+            .appendingPathComponent("Library/Application Support/Xpanda/xpanda_data.json")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -32,11 +42,42 @@ struct ImportView: View {
 
             Divider()
 
-            VStack(spacing: 20) {
+            VStack(spacing: 16) {
+                // Previous version migration
+                if let prevURL = previousVersionURL {
+                    HStack(spacing: 12) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.title2)
+                            .foregroundColor(.blue)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Previous version data found")
+                                .font(.headline)
+                            Text("Import XPs from your previous Xpanda install")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Button("Import") {
+                            pendingFileURL = prevURL
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding()
+                    .background(Color.blue.opacity(0.08))
+                    .cornerRadius(10)
+
+                    HStack {
+                        VStack { Divider() }
+                        Text("or import from file")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        VStack { Divider() }
+                    }
+                }
+
                 // Drop zone
                 VStack(spacing: 12) {
                     if let fileURL = pendingFileURL {
-                        // File staged — show confirmation
                         Image(systemName: "doc.text.fill")
                             .font(.system(size: 48))
                             .foregroundColor(.blue)
@@ -63,7 +104,6 @@ struct ImportView: View {
                             .controlSize(.large)
                         }
                     } else {
-                        // No file — show drop zone
                         Image(systemName: "square.and.arrow.down")
                             .font(.system(size: 48))
                             .foregroundColor(isTargeted ? .white : .blue)
@@ -72,15 +112,13 @@ struct ImportView: View {
                             .font(.title3)
                             .foregroundColor(isTargeted ? .white : .primary)
 
-                        Button(action: selectFile) {
-                            Label("Choose File...", systemImage: "doc")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                        Text("Drag a JSON export file from Finder")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 30)
+                .padding(.vertical, 24)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(isTargeted ? Color.accentColor.opacity(0.2) : Color.clear)
@@ -129,7 +167,7 @@ struct ImportView: View {
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 500, height: 450)
+        .frame(width: 500, height: 560)
         .alert("Error", isPresented: $showingError) {
             Button("OK") {}
         } message: {
@@ -164,21 +202,6 @@ struct ImportView: View {
         }
 
         return true
-    }
-
-    private func selectFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.json]
-        panel.message = "Select an XP export file"
-
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                pendingFileURL = url
-            }
-        }
     }
 
     private func importFile(from url: URL) {

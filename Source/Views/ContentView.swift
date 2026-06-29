@@ -233,7 +233,7 @@ struct ContentView: View {
                         .navigationTitle("")
                         .toolbarBackground(.hidden, for: .windowToolbar)
                 } else {
-                    XPDetailView(xp: currentXP)
+                    XPDetailView(xp: currentXP, onSelectXP: selectXP)
                         .id(currentXP.id)
                         .navigationTitle("")
                         .toolbarBackground(.hidden, for: .windowToolbar)
@@ -285,7 +285,7 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity)
         .sheet(isPresented: $showingConflicts) {
-            ConflictView()
+            ConflictView(onSelect: selectFromConflict)
                 .environmentObject(xpManager)
         }
         .sheet(isPresented: $showingImportExport) {
@@ -365,6 +365,15 @@ struct ContentView: View {
 
     private var hasActiveFilters: Bool {
         !xpManager.searchText.isEmpty || !xpManager.selectedTags.isEmpty || xpManager.selectedFolder != nil
+    }
+
+    private func selectXP(_ xp: XP) {
+        selectedXP = xp
+    }
+
+    private func selectFromConflict(_ xp: XP) {
+        showingConflicts = false
+        selectedXP = xp
     }
 
     private func addNewAutocorrect() {

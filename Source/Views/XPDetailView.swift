@@ -2,6 +2,7 @@ import SwiftUI
 
 struct XPDetailView: View {
     let xp: XP
+    var onSelectXP: ((XP) -> Void)?
     @EnvironmentObject var xpManager: XPManager
     @EnvironmentObject var tutorialManager: TutorialManager
 
@@ -18,8 +19,9 @@ struct XPDetailView: View {
 
     @State private var saveTask: Task<Void, Never>?
 
-    init(xp: XP) {
+    init(xp: XP, onSelectXP: ((XP) -> Void)? = nil) {
         self.xp = xp
+        self.onSelectXP = onSelectXP
         _keyword = State(initialValue: xp.keyword)
         _outputPlainText = State(initialValue: xp.outputPlainText)
         _editorMode = State(initialValue: xp.editorMode)
@@ -367,8 +369,11 @@ struct XPDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(xp.isVariable ? Color(red: 0.3, green: 0.8, blue: 0.4).opacity(0.08) : Color(white: 1.0, opacity: 0.03))
         .sheet(isPresented: $showingConflicts) {
-            ConflictView()
-                .environmentObject(xpManager)
+            ConflictView(onSelect: { xp in
+                showingConflicts = false
+                onSelectXP?(xp)
+            })
+            .environmentObject(xpManager)
         }
     }
 

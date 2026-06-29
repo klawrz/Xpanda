@@ -3,6 +3,7 @@ import SwiftUI
 struct ConflictView: View {
     @EnvironmentObject var xpManager: XPManager
     @Environment(\.dismiss) private var dismiss
+    let onSelect: (XP) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,14 +38,14 @@ struct ConflictView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 16) {
-                        Text("The following keywords are used in multiple XPs. Each keyword should be unique.")
+                        Text("The following keywords are used in multiple XPs. Click an entry to edit it, or delete it to resolve the conflict.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.horizontal)
 
                         ForEach(Array(xpManager.conflictingKeywords.keys.sorted()), id: \.self) { keyword in
                             if let conflictingXPs = xpManager.conflictingKeywords[keyword] {
-                                ConflictGroupView(keyword: keyword, xps: conflictingXPs)
+                                ConflictGroupView(keyword: keyword, xps: conflictingXPs, onSelect: onSelect)
                             }
                         }
                     }
@@ -59,9 +60,8 @@ struct ConflictView: View {
 struct ConflictGroupView: View {
     let keyword: String
     let xps: [XP]
+    let onSelect: (XP) -> Void
     @EnvironmentObject var xpManager: XPManager
-    @State private var showingEditSheet = false
-    @State private var xpToEdit: XP?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -77,10 +77,7 @@ struct ConflictGroupView: View {
 
             VStack(spacing: 8) {
                 ForEach(xps) { xp in
-                    ConflictXPCard(xp: xp, onEdit: {
-                        xpToEdit = xp
-                        showingEditSheet = true
-                    }, onDelete: {
+                    ConflictXPCard(xp: xp, onSelect: { onSelect(xp) }, onDelete: {
                         xpManager.delete(xp)
                     })
                 }
@@ -89,19 +86,14 @@ struct ConflictGroupView: View {
         .padding()
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(12)
-        .sheet(isPresented: $showingEditSheet) {
-            if let xp = xpToEdit {
-                AddEditXPView(mode: .edit(xp))
-                    .environmentObject(xpManager)
-            }
-        }
     }
 }
 
 struct ConflictXPCard: View {
     let xp: XP
-    let onEdit: () -> Void
+    let onSelect: () -> Void
     let onDelete: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -139,23 +131,20 @@ struct ConflictXPCard: View {
 
             Spacer()
 
-            HStack(spacing: 8) {
-                Button(action: onEdit) {
-                    Image(systemName: "pencil")
-                }
-                .buttonStyle(.bordered)
-                .help("Edit this XP")
-
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.bordered)
-                .foregroundColor(.red)
-                .help("Delete this XP")
+            Button(action: onDelete) {
+                Image(systemName: "trash")
             }
+            .buttonStyle(.bordered)
+            .foregroundColor(.red)
+            .help("Delete this XP")
         }
         .padding()
-        .background(Color(NSColor.textBackgroundColor))
+        .background(isHovered ? Color.accentColor.opacity(0.08) : Color(NSColor.textBackgroundColor))
         .cornerRadius(8)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { isHovered = $0 }
+        .help("Click to open and edit this XP")
+        .animation(.easeInOut(duration: 0.1), value: isHovered)
     }
 }
